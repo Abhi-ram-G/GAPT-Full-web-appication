@@ -1,0 +1,7 @@
+{
+  "name": "Green Academic Performance Tracker (GAPT)",
+  "description": "A high-performance, WCAG 2.1 AA compliant academic monitoring system featuring real-time analytics, paperless workflow, and AI-driven insights for students, staff, and administrators.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

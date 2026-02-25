@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary-accent: #5d58ff;
+    --surface-deep: #f8fafc;
+    --surface-elevated: #ffffff;
+    --surface-component: #eef6ff;
+    --text-primary: #0f172a;
+    --text-muted: #64748b;
+    --border-subtle: rgba(15, 23, 42, 0.08);
+  }
+
+  .dark {
+    --surface-deep: #020617;
+    --surface-elevated: #0f172a;
+    --surface-component: #161e2e;
+    --text-primary: #f8fafc;
+    --text-muted: #94a3b8;
+    --border-subtle: rgba(255, 255, 255, 0.05);
+  }
+
+  body {
+    @apply bg-surface-deep text-text-primary transition-colors duration-200;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-slate-800 rounded-full hover:bg-indigo-600;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+
+/* Global Styles managed via index.html Tailwind directives */
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #f8fafc;
+  color-scheme: dark;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 10px;
+  border: 2px solid #0f172a;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(1);
+}
