@@ -1,0 +1,7 @@
+django==5.0.2
+djangorestframework==3.14.0
+django-oauth-toolkit==2.3.0
+django-cors-headers==4.3.1
+pymysql==1.1.0
+django-filter==23.5
+python-dotenv==1.0.1
