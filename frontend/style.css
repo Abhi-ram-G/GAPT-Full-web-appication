@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #10b981;
+  --color-surface-deep: var(--surface-deep);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-component: var(--surface-component);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  --color-border-subtle: var(--border-subtle);
+  
+  --animate-heartbeat: heartbeat 3s ease-in-out infinite;
+  --animate-vibrate-slow: vibrate 4s linear infinite;
+
+  @keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    10% { transform: scale(1.02); }
+    20% { transform: scale(1); }
+    30% { transform: scale(1.03); }
+  }
+  @keyframes vibrate {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(2px, -2px); }
+    50% { transform: translate(-1px, 3px); }
+    75% { transform: translate(-2px, -1px); }
+  }
+}
+
+@layer base {
+  :root {
+    --primary-accent: #059669; 
+    --surface-deep: #ffffff;
+    --surface-elevated: #ffffff;
+    --surface-component: #f9fafb; 
+    --text-primary: #0f172a;
+    --text-muted: #475569;
+    --border-subtle: rgba(0, 0, 0, 0.1);
+  }
+  .dark {
+    --surface-deep: #020617;
+    --surface-elevated: #0f172a;
+    --surface-component: #064e3b; 
+    --text-primary: #f8fafc;
+    --text-muted: #94a3b8;
+    --border-subtle: rgba(16, 185, 129, 0.05);
+  }
+
+  html {
+    font-size: 16px;
+    @media (max-width: 1536px) { font-size: 15px; }
+    @media (max-width: 1280px) { font-size: 14px; }
+    @media (max-width: 1024px) { font-size: 13px; }
+    @media (max-width: 768px) { font-size: 12px; }
+    
+    /* Smooth scaling between breakpoints */
+    scroll-behavior: smooth;
+  }
+
+  body { 
+    @apply bg-surface-deep text-text-primary transition-colors duration-200 antialiased; 
+    overflow-x: hidden;
+  }
+
+  /* Global focus-visible styles for accessibility */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-surface-deep;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { @apply bg-emerald-800 rounded-full hover:bg-emerald-500; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(1);
+}

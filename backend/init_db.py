@@ -14,15 +14,17 @@ from oauth2_provider.models import Application
 User = get_user_model()
 
 # Create superuser if not exists
-if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser('admin', 'admin@example.com', 'password', role='ADMIN')
-    print("Superuser created: admin / password")
+ADMIN_ID = 'abhiram.ad23@bitsathy.ac.in'
+
+if not User.objects.filter(username=ADMIN_ID).exists():
+    User.objects.create_superuser(ADMIN_ID, ADMIN_ID, 'password', role='ADMIN')
+    print(f"Superuser created: {ADMIN_ID} / password")
 else:
-    admin = User.objects.get(username='admin')
+    admin = User.objects.get(username=ADMIN_ID)
     admin.set_password('password')
     admin.role = 'ADMIN'
     admin.save()
-    print("Admin password reset to 'password'")
+    print(f"Admin password reset to 'password' for {ADMIN_ID}")
 
 # Create OAuth2 application if not exists
 if not Application.objects.filter(name='GAPT_APP').exists():
@@ -30,14 +32,36 @@ if not Application.objects.filter(name='GAPT_APP').exists():
         name='GAPT_APP',
         client_id='GAPT_CLIENT_ID',
         client_secret='GAPT_CLIENT_SECRET',
-        client_type=Application.CLIENT_CONFIDENTIAL,
+        client_type=Application.CLIENT_PUBLIC,  # Changed to PUBLIC to allow payload credentials
         authorization_grant_type=Application.GRANT_PASSWORD,
-        user=User.objects.get(username='admin')
+        user=User.objects.get(username=ADMIN_ID)
     )
-    print("OAuth2 Application created: GAPT_CLIENT_ID")
+    print("OAuth2 Application created: GAPT_CLIENT_ID (PUBLIC)")
 else:
     app = Application.objects.get(name='GAPT_APP')
     app.client_id = 'GAPT_CLIENT_ID'
     app.client_secret = 'GAPT_CLIENT_SECRET'
+    app.client_type = Application.CLIENT_PUBLIC
     app.save()
-    print("OAuth2 Application parameters updated")
+    print("OAuth2 Application parameters updated to PUBLIC client_type.")
+
+# Populate default permissions for ADMIN
+from registry.models import RolePermission
+from registry.models import User as RegistryUser
+
+FEATURES = [
+    'USER_DIRECTORY', 'STAFF_DIRECTORY', 'STUDENT_DIRECTORY', 'COHORT_REGISTRY',
+    'ACCESS_REQUESTS', 'IDENTITY_CREATOR', 'INTERLINK_CONTROL', 'BRANDING_HUB',
+    'ACCESS_MATRIX', 'MARK_ENTRY', 'ATTENDANCE_TRACKING', 'STUDY_MATERIALS',
+    'STAFF_ASSIGNMENT', 'LEAVE_MANAGEMENT', 'ASSIGNMENTS', 'ACADEMIC_ANALYTICS',
+    'GREEN_INSIGHTS', 'MENTOR_ASSIGNMENT', 'CHAT', 'EMAIL', 'SPREADSHEET',
+    'EDIT_PROFILE', 'GRAND_ACCESS'
+]
+
+for feature in FEATURES:
+    RolePermission.objects.update_or_create(
+        role='ADMIN',
+        feature=feature,
+        defaults={'level': 'EDIT_ALL'}
+    )
+print("Default 'EDIT_ALL' permissions granted to ADMIN role.")

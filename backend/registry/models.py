@@ -14,13 +14,24 @@ class User(AbstractUser):
         ASSOC_PROF_II = 'ASSOC_PROF_II', _('Associate Professor II')
         ASSOC_PROF_III = 'ASSOC_PROF_III', _('Associate Professor III')
 
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', _('Pending')
+        APPROVED = 'APPROVED', _('Approved')
+        REJECTED = 'REJECTED', _('Rejected')
+
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.APPROVED)
     department = models.CharField(max_length=255, blank=True, null=True)
     study_year = models.CharField(max_length=50, blank=True, null=True)
     reg_no = models.CharField(max_length=100, blank=True, null=True, unique=True)
     staff_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     designation = models.CharField(max_length=255, blank=True, null=True)
     experience = models.CharField(max_length=10, blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    country = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=100, blank=True, null=True)
+    district = models.CharField(max_length=100, blank=True, null=True)
+    city = models.CharField(max_length=100, blank=True, null=True)
     avatar = models.URLField(blank=True, null=True)
     mentor = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='mentees')
     
@@ -67,6 +78,7 @@ class Subject(models.Model):
     lessons_count = models.IntegerField(default=5)
     materials = models.JSONField(default=list, blank=True) # List of filenames
     lesson_names = models.JSONField(default=list, blank=True)
+    question_papers = models.JSONField(default=list, blank=True)
     assigned_staff = models.ManyToManyField(User, related_name='assigned_subjects', blank=True)
 
     def __str__(self):
@@ -98,6 +110,22 @@ class AcademicTask(models.Model):
         return self.title
 
 # --- New Modules for Full Feature Parity ---
+
+class StudentTaskProgress(models.Model):
+    class ProgressStatus(models.TextChoices):
+        TODO = 'TO DO', _('To Do')
+        ONGOING = 'ONGOING', _('Ongoing')
+        COMPLETED = 'COMPLETED', _('Completed')
+    
+    task = models.ForeignKey(AcademicTask, on_delete=models.CASCADE, related_name='student_progress')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='task_progress')
+    progress = models.CharField(max_length=20, choices=ProgressStatus.choices, default=ProgressStatus.TODO)
+    details = models.TextField(blank=True, null=True)
+    marks = models.FloatField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('task', 'student')
 
 class AttendanceRecord(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='attendance_records')
@@ -138,6 +166,9 @@ class MarkRecord(models.Model):
     max_marks = models.FloatField(default=100)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        unique_together = ('batch', 'student', 'subject')
 
 class LeaveRequest(models.Model):
     class LeaveType(models.TextChoices):
@@ -202,3 +233,43 @@ class SiteSettings(models.Model):
     
     class Meta:
         verbose_name_plural = "Site Settings"
+
+class RolePermission(models.Model):
+    role = models.CharField(max_length=50)
+    feature = models.CharField(max_length=100)
+    level = models.CharField(max_length=100)
+
+    class Meta:
+        unique_together = ('role', 'feature')
+
+    def __str__(self):
+        return f"{self.role} - {self.feature}: {self.level}"
+
+class Email(models.Model):
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_emails')
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=255)
+    content = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+    is_starred = models.BooleanField(default=False)
+    is_archived = models.BooleanField(default=False)
+    is_spam = models.BooleanField(default=False)
+    is_snoozed = models.BooleanField(default=False)
+    is_task = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, choices=[('SENT', 'Sent'), ('DRAFT', 'Draft'), ('TRASH', 'Trash')], default='SENT')
+
+class ChatMessage(models.Model):
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_messages')
+    content = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    room = models.CharField(max_length=100, default='GENERAL') # Room name (e.g. DEPT_CSE, BATCH_2024)
+
+class InstitutionalSheet(models.Model):
+    name = models.CharField(max_length=255)
+    data = models.JSONField() # The grid data
+    last_updated = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    def __str__(self):
+        return self.name
