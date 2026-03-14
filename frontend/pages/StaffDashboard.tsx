@@ -93,19 +93,21 @@ const StaffDashboard: React.FC = () => {
                 <DetailItem label="Designation" value={user?.designation || 'Assistant Professor'} color="text-emerald-500" />
                 <DetailItem label="Teaching Experience" value={user?.experience || '8+ Years'} />
               </div>
-              <div className="bg-surface-deep p-6 rounded-[2rem] border border-border-subtle flex flex-col justify-center items-center text-center shadow-inner relative">
-                <div className="absolute top-4 right-4">
-                  <div className="relative flex items-center justify-center w-12 h-12 md:w-14 md:h-14">
-                    <svg className="w-full h-full transform -rotate-90">
-                      <circle cx="28" cy="28" r="22" className="stroke-border-subtle" strokeWidth="4" fill="transparent" />
-                      <circle cx="28" cy="28" r="22" className="stroke-emerald-500 transition-all duration-1000 ease-out" strokeWidth="4" fill="transparent" strokeDasharray="138.23" strokeDashoffset="2.76" strokeLinecap="round" />
+              <div className="bg-surface-deep p-8 rounded-[2rem] border border-border-subtle flex flex-col justify-center items-start shadow-inner relative min-h-[160px]">
+                <div className="absolute top-6 right-6 flex flex-col items-center">
+                  <div className="relative flex items-center justify-center w-14 h-14">
+                    <svg className="w-full h-full transform -rotate-90 translate-x-[2px] translate-y-[2px]">
+                      <circle cx="26" cy="26" r="22" className="stroke-border-subtle" strokeWidth="4" fill="transparent" />
+                      <circle cx="26" cy="26" r="22" className="stroke-emerald-500 transition-all duration-1000 ease-out" strokeWidth="4" fill="transparent" strokeDasharray="138.23" strokeDashoffset="2.76" strokeLinecap="round" />
                     </svg>
-                    <span className="absolute text-[9px] md:text-[10px] font-black text-text-primary">98%</span>
+                    <span className="absolute text-[10px] font-black text-text-primary">98%</span>
                   </div>
-                  <p className="text-[7px] font-black text-text-muted uppercase tracking-widest mt-1 text-center">Attendance</p>
+                  <p className="text-[7px] font-black text-text-muted uppercase tracking-widest mt-1">Attendance</p>
                 </div>
-                <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Assigned Mentees</p>
-                <p className="text-3xl md:text-4xl font-black text-text-primary">{menteesCount}</p>
+                <div className="mt-auto">
+                  <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Assigned Mentees</p>
+                  <p className="text-4xl md:text-5xl font-black text-text-primary tracking-tighter leading-none">{menteesCount}</p>
+                </div>
               </div>
             </div>
           </div>

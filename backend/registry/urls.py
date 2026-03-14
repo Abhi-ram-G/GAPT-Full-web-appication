@@ -7,11 +7,13 @@ from .views import (
     PortalConnectionViewSet, NotificationViewSet, CurriculumEditRequestViewSet,
     SiteSettingsViewSet, AcademicBatchViewSet, BatchCourseCurriculumViewSet,
     RolePermissionViewSet, EmailViewSet, ChatMessageViewSet, InstitutionalSheetViewSet,
-    FileUploadView
+    FileUploadView, ExaminationTestViewSet, TestAttendanceViewSet, StudentSubmissionViewSet,
+    MembershipRequestViewSet
 )
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet)
+router.register(r'membership-requests', MembershipRequestViewSet)
 router.register(r'courses', CourseViewSet)
 router.register(r'subjects', SubjectViewSet)
 router.register(r'tasks', AcademicTaskViewSet)
@@ -32,6 +34,9 @@ router.register(r'permissions', RolePermissionViewSet, basename='permissions')
 router.register(r'emails', EmailViewSet)
 router.register(r'chat-messages', ChatMessageViewSet)
 router.register(r'spreadsheet-data', InstitutionalSheetViewSet, basename='spreadsheet-data')
+router.register(r'examination-tests', ExaminationTestViewSet, basename='examination-tests')
+router.register(r'test-attendance', TestAttendanceViewSet, basename='test-attendance')
+router.register(r'test-submissions', StudentSubmissionViewSet, basename='test-submissions')
 
 urlpatterns = [
     path('', include(router.urls)),

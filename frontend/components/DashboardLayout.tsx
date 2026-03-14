@@ -1,11 +1,10 @@
 
 import React, { useContext, useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
-import { useNavigate, useLocation } from 'react-router';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthContext } from '../AuthContext';
 import CalendarWidget from './CalendarWidget';
-import { UserRole, UserStatus, Feature, Notification as GaptNotification, SiteSettings, PermissionMap, AccessLevel, User, Course, AcademicTask } from '../types';
+import { UserRole, UserStatus, Feature, Notification as GaptNotification, SiteSettings, PermissionMap, AccessLevel, User, Course, AcademicTask, MembershipRequest } from '../types';
 import { ApiService } from '../store';
 
 interface Props {
@@ -47,7 +46,8 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
   EMAIL: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>,
   SPREADSHEET: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 2v-6m-8-4h8a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2z"></path></svg>,
   EDIT_PROFILE: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>,
-  GRAND_ACCESS: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+  GRAND_ACCESS: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>,
+  EXAMINATION: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
 };
 
 const DashboardLayout: React.FC<Props> = ({ children, title, resultCount }) => {
@@ -86,12 +86,17 @@ const DashboardLayout: React.FC<Props> = ({ children, title, resultCount }) => {
     const updateData = async () => {
       const users = await ApiService.getUsers();
       const editRequests = await ApiService.getEditRequests();
+      const membershipReqs = await ApiService.getMembershipRequests() as MembershipRequest[];
       const leaveRequests = await ApiService.getLeaveRequests();
       const notifs = await ApiService.getNotifications(user?.id);
       const settings = await ApiService.getSettings();
       const perms = await ApiService.getPermissions();
 
-      setPendingCount(users.filter(u => u.status === UserStatus.PENDING).length + editRequests.filter(r => r.status === 'PENDING').length);
+      setPendingCount(
+        users.filter(u => u.status === UserStatus.PENDING).length +
+        editRequests.filter(r => r.status === 'PENDING').length +
+        membershipReqs.filter((m: MembershipRequest) => m.status === 'PENDING').length
+      );
       setLeavePendingCount(leaveRequests.filter(l => l.status === 'PENDING').length);
       setNotifications(notifs);
       setSiteSettings(settings);
@@ -235,7 +240,7 @@ const DashboardLayout: React.FC<Props> = ({ children, title, resultCount }) => {
             </>
           )}
 
-          {(hasAccess(Feature.MARK_ENTRY) || hasAccess(Feature.ATTENDANCE_TRACKING) || hasAccess(Feature.STUDY_MATERIALS) || hasAccess(Feature.STAFF_ASSIGNMENT) || hasAccess(Feature.LEAVE_MANAGEMENT) || hasAccess(Feature.ASSIGNMENTS) || hasAccess(Feature.ACADEMIC_ANALYTICS) || hasAccess(Feature.GREEN_INSIGHTS) || hasAccess(Feature.MENTOR_ASSIGNMENT) || hasAccess(Feature.CHAT) || hasAccess(Feature.EMAIL)) && (
+          {(hasAccess(Feature.MARK_ENTRY) || hasAccess(Feature.ATTENDANCE_TRACKING) || hasAccess(Feature.STUDY_MATERIALS) || hasAccess(Feature.STAFF_ASSIGNMENT) || hasAccess(Feature.LEAVE_MANAGEMENT) || hasAccess(Feature.ASSIGNMENTS) || hasAccess(Feature.ACADEMIC_ANALYTICS) || hasAccess(Feature.GREEN_INSIGHTS) || hasAccess(Feature.MENTOR_ASSIGNMENT) || hasAccess(Feature.CHAT) || hasAccess(Feature.EMAIL) || hasAccess(Feature.EXAMINATION_PORTAL)) && (
             <>
               <div className="pt-6 pb-2 text-[10px] font-bold text-text-muted uppercase px-3 tracking-widest border-t border-border-subtle">Academic Ops</div>
               {hasAccess(Feature.CHAT) && NavItem({ to: "/chat", label: "Chat Hub", icon: FEATURE_ICONS.CHAT })}
@@ -260,6 +265,7 @@ const DashboardLayout: React.FC<Props> = ({ children, title, resultCount }) => {
                   icon: FEATURE_ICONS.ANALYTICS
                 })
               )}
+              {NavItem({ to: "/examination-portal", label: "Assessment Portal", icon: FEATURE_ICONS.EXAMINATION })}
               {hasAccess(Feature.GREEN_INSIGHTS) && NavItem({ to: "/", label: "Green Insights", icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> })}
             </>
           )}

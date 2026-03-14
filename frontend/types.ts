@@ -30,6 +30,7 @@ export interface User {
   email: string;
   password?: string;
   name: string;
+  username?: string;
   firstName?: string;
   lastName?: string;
   role: UserRole;
@@ -86,7 +87,8 @@ export enum Feature {
   EMAIL = 'EMAIL',
   SPREADSHEET = 'SPREADSHEET',
   EDIT_PROFILE = 'EDIT_PROFILE',
-  GRAND_ACCESS = 'GRAND_ACCESS'
+  GRAND_ACCESS = 'GRAND_ACCESS',
+  EXAMINATION_PORTAL = 'EXAMINATION_PORTAL'
 }
 
 export enum AccessLevel {
@@ -348,4 +350,15 @@ export interface LeaveRequest {
   reason: string;
   status: LeaveStatus;
   createdAt: string;
+}
+
+export interface MembershipRequest {
+  id: string;
+  email: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  role?: string;
+  department?: string;
+  batch?: string;
+  reg_no?: string;
+  timestamp: string;
 }

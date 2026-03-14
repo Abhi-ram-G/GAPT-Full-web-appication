@@ -21,6 +21,8 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.APPROVED)
+    batch = models.ForeignKey('AcademicBatch', on_delete=models.SET_NULL, null=True, blank=True, related_name='students')
+    course = models.ForeignKey('Course', on_delete=models.SET_NULL, null=True, blank=True, related_name='course_students')
     department = models.CharField(max_length=255, blank=True, null=True)
     study_year = models.CharField(max_length=50, blank=True, null=True)
     reg_no = models.CharField(max_length=100, blank=True, null=True, unique=True)
@@ -224,6 +226,24 @@ class CurriculumEditRequest(models.Model):
     status = models.CharField(max_length=20, choices=[('PENDING', 'Pending'), ('APPROVED', 'Approved'), ('REJECTED', 'Rejected')], default='PENDING')
     timestamp = models.DateTimeField(auto_now_add=True)
 
+class MembershipRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', _('Pending')
+        APPROVED = 'APPROVED', _('Approved')
+        REJECTED = 'REJECTED', _('Rejected')
+
+    email = models.EmailField(unique=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    role = models.CharField(max_length=20, blank=True, null=True)
+    department = models.CharField(max_length=255, blank=True, null=True)
+    batch = models.ForeignKey(AcademicBatch, on_delete=models.SET_NULL, null=True, blank=True)
+    course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True)
+    reg_no = models.CharField(max_length=100, blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.email} ({self.status})"
+
 class SiteSettings(models.Model):
     name = models.CharField(max_length=255, default='GAPT')
     description = models.TextField(blank=True)
@@ -273,3 +293,66 @@ class InstitutionalSheet(models.Model):
 
     def __str__(self):
         return self.name
+
+class ExaminationTest(models.Model):
+    class TestType(models.TextChoices):
+        UNIT_TEST = 'UNIT_TEST', 'Unit Test'
+        INTERNAL_I = 'INTERNAL_I', 'Internal I'
+        INTERNAL_II = 'INTERNAL_II', 'Internal II'
+        SEMESTER = 'SEMESTER', 'Semester'
+
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    test_type = models.CharField(max_length=20, choices=TestType.choices, default=TestType.UNIT_TEST)
+    
+    batch = models.ForeignKey(AcademicBatch, on_delete=models.CASCADE, related_name='tests', null=True)
+    department = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='department_tests', null=True)
+    subject_model = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='subject_tests', null=True)
+    
+    # Keeping old fields for back-compat or simple display
+    target_year = models.CharField(max_length=50) 
+    subject = models.CharField(max_length=255) # Name for backward compatibility
+    
+    staff = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='staff_tests')
+    lessons = models.JSONField(default=list, blank=True)
+    total_marks = models.IntegerField(default=100)
+    duration = models.CharField(max_length=50)
+    
+    # Store questions as a structured JSON: { section1: [], section2: [], etc. }
+    questions_data = models.JSONField(default=dict, blank=True)
+    
+    status = models.CharField(max_length=20, choices=[('Upcoming', 'Upcoming'), ('Active', 'Active'), ('Completed', 'Completed')], default='Upcoming')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_tests')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    invigilators = models.ManyToManyField(User, related_name='invigilated_tests', blank=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.test_type})"
+
+class TestAttendance(models.Model):
+    test = models.ForeignKey(ExaminationTest, on_delete=models.CASCADE, related_name='attendances')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_attendances')
+    is_present = models.BooleanField(default=False)
+    assigned_invigilator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_examinees')
+    marked_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='test_attendance_marks')
+    marked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('test', 'student')
+
+class StudentSubmission(models.Model):
+    test = models.ForeignKey(ExaminationTest, on_delete=models.CASCADE, related_name='submissions')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_submissions')
+    answers = models.JSONField(default=dict) # { question_id: answer_text }
+    marks_assigned = models.JSONField(default=dict) # { question_id: mark }
+    total_marks_obtained = models.FloatField(default=0)
+    cheating_attempts = models.IntegerField(default=0)
+    is_evaluated = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    evaluated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='evaluations')
+
+    class Meta:
+        unique_together = ('test', 'student')

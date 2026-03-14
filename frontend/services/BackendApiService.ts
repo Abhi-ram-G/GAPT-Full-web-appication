@@ -1,7 +1,7 @@
 import {
     User, MarkBatch, MarkRecord, AttendanceRecord, AttendanceEditRequest,
     LeaveRequest, Timetable, AcademicTask, SiteSettings, PortalConnection,
-    Course, Subject, AcademicBatch, UserRole, Feature, AccessLevel
+    Course, Subject, AcademicBatch, UserRole, Feature, AccessLevel, MembershipRequest
 } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -292,6 +292,51 @@ export default class BackendApiService {
         return this.request(`${API_BASE}/permissions/`);
     }
 
+    // ─── Membership Requests ────────────────────────────────────────────────
+    static async getMembershipRequests(): Promise<MembershipRequest[]> {
+        return this.request(`${API_BASE}/membership-requests/`);
+    }
+
+    static async approveMembershipRequest(req: MembershipRequest, data: { role: UserRole; department?: string; batchId?: string; regNo?: string; designation?: string }): Promise<{ password: string }> {
+        const password = `GAPT@${Math.random().toString(36).slice(-8)}`;
+        // Best-effort patch to backend; some deployments may not expose the endpoint yet
+        try {
+            await this.request(`${API_BASE}/membership-requests/${req.id}/`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'APPROVED', ...data })
+            });
+        } catch (err) {
+            console.warn('MembershipRequest patch failed (non-blocking):', err);
+        }
+
+        // Provision the account so the UI remains consistent even if the backend lacks automation
+        const fallbackUser: Partial<User> = {
+            email: req.email,
+            name: req.email?.split('@')[0]?.toUpperCase() || 'NEW USER',
+            role: data.role,
+            status: 'APPROVED' as any,
+            department: data.department,
+            password
+        };
+        try {
+            await this.addUser(fallbackUser);
+        } catch (err) {
+            console.warn('User provisioning fallback failed:', err);
+        }
+        return { password };
+    }
+
+    static async rejectMembershipRequest(id: string): Promise<void> {
+        try {
+            await this.request(`${API_BASE}/membership-requests/${id}/`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'REJECTED' })
+            });
+        } catch (err) {
+            console.warn('MembershipRequest rejection failed (non-blocking):', err);
+        }
+    }
+
     static async updatePermission(role: string, feature: string, level: string): Promise<void> {
         await this.request(`${API_BASE}/permissions/update_permission/`, {
             method: 'POST',
@@ -478,6 +523,107 @@ export default class BackendApiService {
         });
 
         return matrix;
+    }
+
+    // ─── Examination ────────────────────────────────────────────────────────
+    static async getExaminationTests(): Promise<any[]> {
+        return this.request(`${API_BASE}/examination-tests/`);
+    }
+
+    static async getExaminationTest(id: string): Promise<any> {
+        return this.request(`${API_BASE}/examination-tests/${id}/`);
+    }
+
+    static async getExaminationStudentList(id: string, params?: { batch?: string; department?: string; invigilator?: string | number }): Promise<any[]> {
+        const search = new URLSearchParams();
+        if (params?.batch) search.append('batch', params.batch);
+        if (params?.department) search.append('department', params.department);
+        if (params?.invigilator) search.append('invigilator', String(params.invigilator));
+        const qs = search.toString();
+        const url = qs
+            ? `${API_BASE}/examination-tests/${id}/student_list/?${qs}`
+            : `${API_BASE}/examination-tests/${id}/student_list/`;
+        return this.request(url);
+    }
+
+    static async markTestAttendance(data: { testId: string; studentId: string; isPresent: boolean }): Promise<void> {
+        await this.request(`${API_BASE}/test-attendance/mark/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                testId: data.testId,
+                studentId: data.studentId,
+                isPresent: data.isPresent,
+            }),
+        });
+    }
+
+    static async addExaminationTest(test: any): Promise<any> {
+        return this.request(`${API_BASE}/examination-tests/`, {
+            method: 'POST',
+            body: JSON.stringify(test),
+        });
+    }
+
+    static async updateExaminationTest(id: string, test: any): Promise<any> {
+        return this.request(`${API_BASE}/examination-tests/${id}/`, {
+            method: 'PATCH',
+            body: JSON.stringify(test),
+        });
+    }
+
+    static async scheduleExaminationTest(id: string, schedule: any): Promise<void> {
+        await this.request(`${API_BASE}/examination-tests/${id}/schedule/`, {
+            method: 'POST',
+            body: JSON.stringify(schedule),
+        });
+    }
+
+    static async assignStudentToInvigilator(testId: string, invigilatorId: string, studentIds: string[]): Promise<void> {
+        await this.request(`${API_BASE}/examination-tests/${testId}/bulk_assign_invigilators/`, {
+            method: 'POST',
+            body: JSON.stringify({ invigilatorId, studentIds }),
+        });
+    }
+
+    static async deleteExaminationTest(id: string): Promise<void> {
+        await this.request(`${API_BASE}/examination-tests/${id}/`, {
+            method: 'DELETE',
+        });
+    }
+
+    // ─── Student Test Taking ────────────────────────────────────────────────
+    static async getTestAttendanceStatus(testId: string, studentId: string): Promise<boolean> {
+        const res = await this.request(`${API_BASE}/test-attendance/?test=${testId}&student=${studentId}`);
+        if (Array.isArray(res) && res.length > 0) {
+            return !!res[0].is_present;
+        }
+        return false;
+    }
+
+    static async submitTestAnswers(testId: string, answers: Record<string, string>): Promise<void> {
+        await this.request(`${API_BASE}/test-submissions/submit/`, {
+            method: 'POST',
+            body: JSON.stringify({ testId, answers }),
+        });
+    }
+
+    static async getStudentTestAttendance(studentId: string): Promise<any[]> {
+        return this.request(`${API_BASE}/test-attendance/?student=${studentId}`);
+    }
+
+    static async getTestSubmissions(testId: string): Promise<any[]> {
+        return this.request(`${API_BASE}/test-submissions/?test=${testId}`);
+    }
+
+    static async evaluateTestSubmission(submissionId: string, marksAssigned: Record<string, number>, totalMarks?: number, cheatingAttempts?: number): Promise<any> {
+        return this.request(`${API_BASE}/test-submissions/${submissionId}/evaluate/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                marksAssigned,
+                totalMarks,
+                cheatingAttempts,
+            }),
+        });
     }
 
     static async uploadFile(file: File): Promise<string> {

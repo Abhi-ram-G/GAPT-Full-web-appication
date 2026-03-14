@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import DashboardLayout from '../components/DashboardLayout';
-import { User, UserRole, UserStatus, BatchCurriculumStatus, AttendanceEditRequest } from '../types';
+import { User, UserRole, UserStatus, BatchCurriculumStatus, AttendanceEditRequest, MembershipRequest, Course, AcademicBatch } from '../types';
 import { ApiService } from '../store';
 import { AuthContext } from '../AuthContext';
+import { UserPlus, Check, X, Mail, Shield, BookOpen, Clock, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const RequestApproval: React.FC = () => {
   const { user } = useContext(AuthContext);
@@ -11,6 +13,20 @@ const RequestApproval: React.FC = () => {
   const [curriculumRequests, setCurriculumRequests] = useState<any[]>([]);
   const [passwordRequests, setPasswordRequests] = useState<User[]>([]);
   const [attendanceRequests, setAttendanceRequests] = useState<AttendanceEditRequest[]>([]);
+  const [membershipRequests, setMembershipRequests] = useState<MembershipRequest[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [batches, setBatches] = useState<AcademicBatch[]>([]);
+
+  const [selectedMembership, setSelectedMembership] = useState<MembershipRequest | null>(null);
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+
+  const [formData, setFormData] = useState({
+    role: UserRole.STUDENT,
+    department: '',
+    batchId: '',
+    regNo: '',
+    designation: ''
+  });
 
   useEffect(() => {
     refreshData();
@@ -28,6 +44,13 @@ const RequestApproval: React.FC = () => {
     // Filter visible requests based on role
     if (user?.role === UserRole.ADMIN) {
       setAttendanceRequests(attReqs.filter(r => !r.adminApproved));
+
+      const members = await ApiService.getMembershipRequests() as MembershipRequest[];
+      setMembershipRequests(members.filter((m: MembershipRequest) => m.status === 'PENDING'));
+
+      const [c, b] = await Promise.all([ApiService.getCurriculum(), ApiService.getAcademicBatches()]);
+      setCourses(c);
+      setBatches(b);
     } else if (user?.role === UserRole.DEAN) {
       setAttendanceRequests(attReqs.filter(r => !r.deanApproved));
     } else if (user?.role === UserRole.HOD) {
@@ -79,6 +102,36 @@ const RequestApproval: React.FC = () => {
         type: 'EDIT_APPROVED'
       });
     }
+    refreshData();
+  };
+
+  const openApprovalModal = (req: MembershipRequest) => {
+    setSelectedMembership(req);
+    setFormData({
+      role: UserRole.STUDENT,
+      department: '',
+      batchId: '',
+      regNo: '',
+      designation: ''
+    });
+    setIsApprovalModalOpen(true);
+  };
+
+  const handleApproveMembership = async () => {
+    if (!selectedMembership) return;
+    try {
+      const res = await ApiService.approveMembershipRequest(selectedMembership, formData);
+      const defaultPassword = res?.password || 'TemporaryPassword@123';
+      alert(`Member added! Default password: ${defaultPassword}`);
+      setIsApprovalModalOpen(false);
+      refreshData();
+    } catch (err: any) {
+      alert(err.message || "Failed to approve member");
+    }
+  };
+
+  const handleRejectMembership = async (id: string) => {
+    await ApiService.rejectMembershipRequest(id);
     refreshData();
   };
 
@@ -238,6 +291,161 @@ const RequestApproval: React.FC = () => {
           </div>
         </section>
 
+        {/* Identity Fetch Requests (Membership) */}
+        <section className="space-y-6">
+          <div className="flex items-center justify-between px-2">
+            <h3 className="text-text-primary font-black text-xl lowercase tracking-tight">Identity Access requests</h3>
+            <span className="px-4 py-1.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase tracking-widest rounded-full border border-emerald-500/20">
+              {membershipRequests.length} Unknown log-in attempts
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6">
+            {membershipRequests.map(req => (
+              <div key={req.id} className="bg-surface-component border border-border-subtle p-8 rounded-[3rem] shadow-xl group hover:border-emerald-500/30 transition-all">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
+                  <div className="flex items-center gap-6">
+                    <div className="w-16 h-16 rounded-[1.5rem] bg-slate-900 border border-white/5 flex items-center justify-center text-emerald-500 shadow-inner">
+                      <Mail size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-text-primary font-black text-lg lowercase tracking-tight">{req.email}</h4>
+                      <p className="text-text-muted text-[10px] font-black uppercase tracking-widest mt-1">Pending verification • Attempted {new Date(req.timestamp).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleRejectMembership(req.id)}
+                      className="px-6 py-3 bg-red-500/10 text-red-500 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                    >
+                      Purge Request
+                    </button>
+                    <button
+                      onClick={() => openApprovalModal(req)}
+                      className="px-8 py-3 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center gap-2"
+                    >
+                      <UserPlus size={14} />
+                      provision record
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {membershipRequests.length === 0 && (
+              <div className="py-20 text-center border-4 border-dashed border-border-subtle rounded-[3rem]">
+                <p className="text-text-muted font-black uppercase tracking-widest text-xs">No pending identity access petitions.</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Provisioning Modal */}
+        <AnimatePresence>
+          {isApprovalModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsApprovalModalOpen(false)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative bg-surface-deep border border-white/10 w-full max-w-xl rounded-[3.5rem] p-10 shadow-2xl overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 to-green-600"></div>
+
+                <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Member Provisioning</h2>
+                <p className="text-slate-400 text-xs font-medium mb-8 uppercase tracking-widest">Target: <span className="text-emerald-400">{selectedMembership?.email}</span></p>
+
+                <div className="space-y-6">
+                  {/* Role Selection */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-500 font-black uppercase tracking-widest ml-4">Institutional Role</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[UserRole.STUDENT, UserRole.STAFF, UserRole.HOD, UserRole.DEAN].map(r => (
+                        <button
+                          key={r}
+                          onClick={() => setFormData({ ...formData, role: r })}
+                          className={`py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${formData.role === r ? 'bg-emerald-500 border-emerald-500 text-white shadow-lg' : 'bg-slate-900 border-white/5 text-slate-400 hover:border-white/20'}`}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dynamic Fields */}
+                  <div className="grid grid-cols-1 gap-6">
+                    {/* Department Dropdown for all Roles */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] text-slate-500 font-black uppercase tracking-widest ml-4">Assigned Department</label>
+                      <select
+                        value={formData.department}
+                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                        className="w-full bg-slate-900 border border-white/5 text-white rounded-2xl px-6 py-4 outline-none focus:border-emerald-500/50 appearance-none font-bold text-sm"
+                      >
+                        <option value="">Select Department</option>
+                        {courses.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                      </select>
+                    </div>
+
+                    {formData.role === UserRole.STUDENT && (
+                      <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="space-y-2">
+                          <label className="text-[10px] text-slate-500 font-black uppercase tracking-widest ml-4">Academic Batch</label>
+                          <select
+                            value={formData.batchId}
+                            onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
+                            className="w-full bg-slate-900 border border-white/5 text-white rounded-2xl px-6 py-4 outline-none focus:border-emerald-500/50 appearance-none font-bold text-sm"
+                          >
+                            <option value="">Select Batch</option>
+                            {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl">
+                          <p className="text-[9px] text-emerald-500 font-black uppercase tracking-widest mb-1 italic">Automated Generation</p>
+                          <p className="text-[11px] text-slate-300 font-medium">Study Year and Register Number will be automatically computed based on selected batch and department.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.role !== UserRole.STUDENT && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <label className="text-[10px] text-slate-500 font-black uppercase tracking-widest ml-4">Staff Designation</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Assistant Professor"
+                          value={formData.designation}
+                          onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                          className="w-full bg-slate-900 border border-white/5 text-white rounded-2xl px-6 py-4 outline-none focus:border-emerald-500/50 font-bold text-sm placeholder:text-slate-700"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-10 flex gap-4">
+                  <button
+                    onClick={() => setIsApprovalModalOpen(false)}
+                    className="flex-1 py-4 bg-slate-900 text-slate-500 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:text-white transition-all border border-white/5"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleApproveMembership}
+                    className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-600/20 active:scale-95 transition-all"
+                  >
+                    Finalize Account Provisioning
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </DashboardLayout>
   );

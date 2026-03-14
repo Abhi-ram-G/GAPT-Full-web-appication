@@ -4,8 +4,10 @@ from .models import (
     AttendanceEditRequest, MarkBatch, MarkRecord, LeaveRequest, Timetable,
     HourAssignment, PortalConnection, Notification, CurriculumEditRequest, SiteSettings,
     AcademicBatch, BatchCourseCurriculum, RolePermission, StudentTaskProgress,
-    Email, ChatMessage, InstitutionalSheet
+    Email, ChatMessage, InstitutionalSheet, ExaminationTest, TestAttendance, StudentSubmission,
+    MembershipRequest
 )
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 class UserSerializer(serializers.ModelSerializer):
     studyYear = serializers.CharField(source='study_year', required=False, allow_null=True, allow_blank=True)
@@ -229,5 +231,58 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 class InstitutionalSheetSerializer(serializers.ModelSerializer):
     class Meta:
         model = InstitutionalSheet
+        fields = '__all__'
+
+class ExaminationTestSerializer(serializers.ModelSerializer):
+    batchName = serializers.SerializerMethodField(read_only=True)
+    departmentName = serializers.SerializerMethodField(read_only=True)
+    subjectName = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ExaminationTest
+        fields = '__all__'
+
+    def get_batchName(self, obj):
+        return obj.batch.name if obj.batch else None
+
+    def get_departmentName(self, obj):
+        return obj.department.name if obj.department else None
+
+    def get_subjectName(self, obj):
+        if obj.subject_model:
+            return obj.subject_model.name
+        return obj.subject
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Normalize id fields to strings for frontend convenience
+        for key in ['id', 'batch', 'department', 'subject_model', 'staff', 'created_by']:
+            if key in data and data[key] is not None:
+                data[key] = str(data[key])
+        if 'invigilators' in data and isinstance(data['invigilators'], list):
+            data['invigilators'] = [str(v) for v in data['invigilators']]
+        return data
+
+class TestAttendanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestAttendance
+        fields = '__all__'
+
+class StudentSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentSubmission
+        fields = '__all__'
+
+class CustomTokenSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['username'] = user.username
+        token['email'] = user.email
+        return token
+
+class MembershipRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MembershipRequest
         fields = '__all__'
 

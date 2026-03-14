@@ -44,6 +44,20 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [popup, setPopup] = useState<{ title: string; message: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    // If backend returns chosen email in query (?google_email=...), surface it.
+    const params = new URLSearchParams(window.location.search);
+    const returnedEmail = params.get('google_email');
+    if (returnedEmail) {
+      setGoogleEmail(returnedEmail);
+    } else {
+      const cached = localStorage.getItem('google_email_hint');
+      if (cached) setGoogleEmail(cached);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +68,7 @@ const Login: React.FC = () => {
       await login(email, password);
     } catch (err: any) {
       if (err.message.includes('invalid_grant') || err.message.includes('Invalid credentials')) {
-        setError("Invalid institutional credentials.");
+        setError("Credentials not found. An access request has been automatically dispatched to the administrator for verification.");
       } else if (err.message.includes('HTML')) {
         setError("Backend communication failure. Check server status.");
       } else {
@@ -63,6 +77,23 @@ const Login: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    setError(null);
+    const bitsDomain = '@bitsathy.ac.in';
+    const chosen = email || googleEmail || '';
+    const isBitsMail = chosen.toLowerCase().endsWith(bitsDomain);
+    if (!isBitsMail) {
+      setError('Use your BITSATHY Google ID (name.xxyy@bitsathy.ac.in).');
+      return;
+    }
+    localStorage.setItem('google_email_hint', chosen);
+    setGoogleEmail(chosen);
+    setIsGoogleLoading(true);
+    // Force Google account chooser with domain and login_hint for clarity.
+    const target = `/auth/google?hd=bitsathy.ac.in&login_hint=${encodeURIComponent(chosen)}&prompt=select_account`;
+    window.location.href = target;
   };
 
   return (
@@ -155,6 +186,38 @@ const Login: React.FC = () => {
               )}
               <div className="absolute top-0 -left-[100%] w-full h-full bg-white/20 skew-x-[-20deg] group-hover:left-[100%] transition-all duration-700 pointer-events-none"></div>
             </button>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={isGoogleLoading}
+              className="w-full bg-white text-slate-800 font-black py-2.5 md:py-3.5 rounded-full border-2 border-emerald-200 hover:border-emerald-400 shadow-[0_12px_30px_-12px_rgba(0,0,0,0.35)] transition-all active:scale-[0.98] uppercase text-xs md:text-sm tracking-[0.25em] disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {isGoogleLoading ? (
+                <div className="w-5 h-5 border-2 border-slate-300 border-t-emerald-500 rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 48 48">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6 1.54 7.38 2.83l5.4-5.4C33.66 3.99 29.2 2 24 2 14.94 2 7.26 7.76 4.34 16l6.88 5.34C12.68 14.06 17.86 9.5 24 9.5z" />
+                    <path fill="#4285F4" d="M46.5 24.5c0-1.57-.14-3.08-.4-4.5H24v9h12.7c-.55 2.82-2.21 5.2-4.7 6.8l7.18 5.58C43.9 37.7 46.5 31.6 46.5 24.5z" />
+                    <path fill="#FBBC05" d="M11.22 28.66c-.5-1.48-.78-3.06-.78-4.66s.28-3.18.78-4.66L4.34 14C2.89 17.14 2 20.47 2 24s.89 6.86 2.34 10l6.88-5.34z" />
+                    <path fill="#34A853" d="M24 46c5.4 0 9.92-1.78 13.22-4.84l-7.18-5.58c-1.99 1.34-4.54 2.12-6.04 2.12-5.32 0-9.83-3.58-11.44-8.5l-6.9 5.36C7.4 40.26 14.98 46 24 46z" />
+                    <path fill="none" d="M2 2h44v44H2z" />
+                  </svg>
+                  <span className="relative z-10">Login with Google</span>
+                </>
+              )}
+            </button>
+            <div className="space-y-1 text-center">
+              <p className="text-[10px] text-emerald-200/80 font-semibold uppercase tracking-[0.18em]">
+                Use your BITSATHY Google ID (name.xxyy@bitsathy.ac.in) only
+              </p>
+              {googleEmail && (
+                <p className="text-[11px] font-bold text-white/90">
+                  Selected account: <span className="text-emerald-300">{googleEmail}</span>
+                </p>
+              )}
+            </div>
           </form>
         </div>
       </div>

@@ -1,8 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-// Corrected: Split imports to fix "no exported member" errors by using react-router for core logic
-import { HashRouter } from 'react-router-dom';
-import { Routes, Route, Navigate } from 'react-router';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AdminDashboard from './pages/AdminDashboard';
 import StudentDashboard from './pages/StudentDashboard';
 import StaffDashboard from './pages/StaffDashboard';
@@ -43,6 +41,10 @@ import StaffDirectory from './pages/StaffDirectory';
 import StudentDirectory from './pages/StudentDirectory';
 import AccessControl from './pages/AccessControl';
 import Contacts from './pages/Contacts';
+import ExaminationPortal from './pages/ExaminationPortal';
+import ExaminationAttendance from './pages/ExaminationAttendance';
+import ExaminationAllotment from './pages/ExaminationAllotment';
+import ExaminationSchedule from './pages/ExaminationSchedule';
 import { User, UserRole, Feature, AccessLevel, PermissionMap } from './types';
 import { ApiService } from './store';
 import { AuthContext } from './AuthContext';
@@ -164,6 +166,11 @@ const App: React.FC = () => {
             <Route path="/student/assignments" element={<ProtectedRoute feature={Feature.ASSIGNMENTS}><AssignmentRegistry /></ProtectedRoute>} />
 
             <Route path="/analytics/student-tracker" element={<ProtectedRoute feature={Feature.ACADEMIC_ANALYTICS}><StudentPerformanceTracker /></ProtectedRoute>} />
+
+            <Route path="/examination-portal" element={<ProtectedRoute><ExaminationPortal /></ProtectedRoute>} />
+            <Route path="/examination/schedule/:testId" element={<ProtectedRoute><ExaminationSchedule /></ProtectedRoute>} />
+            <Route path="/examination/attendance/:testId" element={<ProtectedRoute><ExaminationAttendance /></ProtectedRoute>} />
+            <Route path="/examination/allotment/:testId" element={<ProtectedRoute><ExaminationAllotment /></ProtectedRoute>} />
 
             <Route path="/profile/:userId" element={<ProtectedRoute><ProfileDetail /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

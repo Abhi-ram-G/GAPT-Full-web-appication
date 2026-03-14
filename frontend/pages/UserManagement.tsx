@@ -21,7 +21,7 @@ const UserManagement: React.FC = () => {
 
   const [enrollmentCategory, setEnrollmentCategory] = useState<'ADMIN' | 'STAFF' | 'STUDENT' | 'HOD' | 'DEAN'>('STUDENT');
   const [viewMode, setViewMode] = useState<'MANAGE' | 'LIST'>('LIST');
-  const [activeTab, setActiveTab] = useState<UserRole>(UserRole.ADMIN);
+  const [activeTab, setActiveTab] = useState<UserRole | 'ALL_FACULTY'>('ALL_FACULTY');
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('ALL');
   const [selectedYearFilter, setSelectedYearFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -76,7 +76,10 @@ const UserManagement: React.FC = () => {
   const filteredUsers = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return users.filter(u => {
-      const matchesRole = u.role?.toString().toUpperCase() === activeTab?.toString().toUpperCase();
+      const matchesRole =
+        activeTab === 'ALL_FACULTY'
+          ? [UserRole.ADMIN, UserRole.STAFF, UserRole.HOD, UserRole.DEAN].includes(u.role as UserRole)
+          : u.role?.toString().toUpperCase() === activeTab?.toString().toUpperCase();
 
       const matchesDept = selectedDeptFilter === 'ALL' || u.department === selectedDeptFilter;
       const matchesYear = activeTab !== UserRole.STUDENT || selectedYearFilter === 'ALL' || u.studyYear === selectedYearFilter;
@@ -258,18 +261,33 @@ const UserManagement: React.FC = () => {
             <div className="animate-in fade-in duration-300">
               <div className="flex flex-col gap-6 mb-10">
                 <div className="flex flex-col md:flex-row items-center justify-center gap-4 relative">
-                  <div className="flex justify-center flex-wrap gap-3 overflow-x-auto no-scrollbar" role="tablist" aria-label="User roles">
-                    {[UserRole.ADMIN, UserRole.STAFF, UserRole.HOD, UserRole.DEAN, UserRole.STUDENT].map(role => (
-                      <button
-                        key={role}
-                        role="tab"
-                        aria-selected={activeTab === role}
-                        onClick={() => setActiveTab(role)}
-                        className={`px-8 py-2.5 rounded-full font-bold text-[10px] uppercase tracking-widest transition-all ${activeTab === role ? 'bg-primary text-white shadow-lg' : 'bg-surface-component text-text-muted'}`}
-                      >
-                        {role.replace(/_/g, ' ')}S
-                      </button>
-                    ))}
+                  <div className="w-full">
+                    <div className="bg-gradient-to-b from-slate-200/40 to-transparent dark:from-white/5 rounded-[2rem] px-3 py-3 shadow-inner border border-border-subtle">
+                      <div className="flex justify-between flex-wrap gap-2 md:gap-4" role="tablist" aria-label="User roles">
+                        {[
+                          { key: 'ALL_FACULTY', label: 'All Faculty' },
+                          { key: UserRole.ADMIN, label: 'Admins' },
+                          { key: UserRole.STAFF, label: 'Staffs' },
+                          { key: UserRole.HOD, label: 'HODs' },
+                          { key: UserRole.DEAN, label: 'Deans' },
+                          { key: UserRole.STUDENT, label: 'Students' },
+                        ].map(tab => (
+                          <button
+                            key={tab.key as string}
+                            role="tab"
+                            aria-selected={activeTab === tab.key}
+                            onClick={() => setActiveTab(tab.key as any)}
+                            className={`px-6 md:px-7 py-2 rounded-full font-black text-[11px] uppercase tracking-[0.2em] transition-all ${
+                              activeTab === tab.key
+                                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                                : 'bg-transparent text-slate-500 hover:text-emerald-400'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   {selectedUserIds.length > 0 && (
