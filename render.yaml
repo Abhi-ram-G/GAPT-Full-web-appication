@@ -2,6 +2,7 @@ services:
   - type: web
     name: gapt-full-web-appication
     env: python
+    pythonVersion: "3.11.9"
     plan: free
     buildCommand: |
       cd backend
