@@ -123,6 +123,27 @@ export interface SiteSettings {
   institution: string;
 }
 
+export type AccessGrantType = 'HIDE' | AccessLevel | 'FULL';
+
+export interface MenuItem {
+  id: string;
+  name: string;
+  category: string;
+  slug: string;
+}
+
+export interface RoleDefinition {
+  id: string;
+  name: string;
+  label?: string;
+}
+
+export interface PermissionEntry {
+  menuId: string;
+  accessType: AccessGrantType;
+  roleId?: string;
+}
+
 export enum BatchStatus {
   OPEN = 'OPEN',
   FROZEN = 'FROZEN',

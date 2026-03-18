@@ -74,9 +74,21 @@ const ExaminationAllotment: React.FC = () => {
         ApiService.getUsers()
       ]);
 
+      const rosterList = roster || [];
+      const unassignedRoster = rosterList.filter(stu => !stu.assignedInvigilatorId);
+      const assignedStudentIds = new Set(
+        rosterList
+          .filter(stu => !!stu.assignedInvigilatorId)
+          .map(stu => String(stu.id))
+      );
+
       setTest(foundTest);
-      setStudents(roster || []);
-      setAllStudents(allUsers.filter(u => u.role === 'STUDENT'));
+      setStudents(unassignedRoster);
+      setAllStudents(
+        allUsers
+          .filter(u => u.role === 'STUDENT')
+          .filter(u => !assignedStudentIds.has(String(u.id)))
+      );
 
       const invs = allUsers.filter(u => ['STAFF', 'HOD', 'DEAN'].includes(u.role));
       setInvigilators(invs);
@@ -111,16 +123,18 @@ const ExaminationAllotment: React.FC = () => {
 
   const clearSelection = () => {
     setSelectedIds(new Set());
-    setStudents([]); // user-triggered clear wipes current roster
   };
 
   const handleAssign = async () => {
     if (!testId || !assignTo || selectedIds.size === 0) return;
+    const idsToAssign = Array.from(selectedIds);
     try {
-      await ApiService.assignStudentToInvigilator(testId, assignTo, Array.from(selectedIds));
-      // refresh roster to reflect new invigilator name
-      await fetchData();
+      await ApiService.assignStudentToInvigilator(testId, assignTo, idsToAssign);
+      // optimistically remove assigned students from roster
+      setStudents(prev => prev.filter(stu => !selectedIds.has(stu.id)));
       clearSelection();
+      // refresh roster to reflect new invigilator assignments/server state
+      await fetchData();
     } catch (err: any) {
       alert(err.message || 'Failed to assign students');
     }

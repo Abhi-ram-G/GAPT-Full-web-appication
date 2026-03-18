@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
+    GoogleLoginView,
     UserViewSet, CourseViewSet, SubjectViewSet, AcademicTaskViewSet,
     AttendanceRecordViewSet, AttendanceEditRequestViewSet, MarkBatchViewSet,
     MarkRecordViewSet, LeaveRequestViewSet, TimetableViewSet,
@@ -8,7 +9,9 @@ from .views import (
     SiteSettingsViewSet, AcademicBatchViewSet, BatchCourseCurriculumViewSet,
     RolePermissionViewSet, EmailViewSet, ChatMessageViewSet, InstitutionalSheetViewSet,
     FileUploadView, ExaminationTestViewSet, TestAttendanceViewSet, StudentSubmissionViewSet,
-    MembershipRequestViewSet
+    MembershipRequestViewSet, AccessControlViewSet,
+    AssessmentTestViewSet, StudentTestSessionViewSet, QuestionResponseViewSet,
+    InvigilatorAssignmentViewSet, TestSessionLockViewSet, ProctoringEventViewSet, EvaluationHistoryViewSet
 )
 
 router = DefaultRouter()
@@ -31,13 +34,22 @@ router.register(r'site-settings', SiteSettingsViewSet, basename='site-settings')
 router.register(r'academic-batches', AcademicBatchViewSet)
 router.register(r'curriculum-status', BatchCourseCurriculumViewSet)
 router.register(r'permissions', RolePermissionViewSet, basename='permissions')
+router.register(r'access-control', AccessControlViewSet, basename='access-control')
 router.register(r'emails', EmailViewSet)
 router.register(r'chat-messages', ChatMessageViewSet)
 router.register(r'spreadsheet-data', InstitutionalSheetViewSet, basename='spreadsheet-data')
 router.register(r'examination-tests', ExaminationTestViewSet, basename='examination-tests')
 router.register(r'test-attendance', TestAttendanceViewSet, basename='test-attendance')
 router.register(r'test-submissions', StudentSubmissionViewSet, basename='test-submissions')
+router.register(r'assessments', AssessmentTestViewSet, basename='assessments')
+router.register(r'sessions', StudentTestSessionViewSet, basename='sessions')
+router.register(r'responses', QuestionResponseViewSet, basename='responses')
+router.register(r'invigilation', InvigilatorAssignmentViewSet, basename='invigilations')
+router.register(r'session-locks', TestSessionLockViewSet, basename='session-locks')
+router.register(r'proctor-events', ProctoringEventViewSet, basename='proctor-events')
+router.register(r'evaluation-history', EvaluationHistoryViewSet, basename='evaluation-history')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('auth/google/', GoogleLoginView.as_view(), name='google-login'),
 ]

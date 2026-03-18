@@ -40,6 +40,7 @@ import Settings from './pages/Settings';
 import StaffDirectory from './pages/StaffDirectory';
 import StudentDirectory from './pages/StudentDirectory';
 import AccessControl from './pages/AccessControl';
+import GrandAccessDetail from './pages/GrandAccessDetail';
 import Contacts from './pages/Contacts';
 import ExaminationPortal from './pages/ExaminationPortal';
 import ExaminationAttendance from './pages/ExaminationAttendance';
@@ -145,6 +146,7 @@ const App: React.FC = () => {
             <Route path="/admin/portal-connection" element={<ProtectedRoute feature={Feature.INTERLINK_CONTROL}><PortalConnectionPage /></ProtectedRoute>} />
             <Route path="/admin/access" element={<ProtectedRoute requiredRole={UserRole.ADMIN} feature={Feature.ACCESS_MATRIX}><ManageAccess /></ProtectedRoute>} />
             <Route path="/admin/grand-access" element={<ProtectedRoute requiredRole={UserRole.ADMIN}><AccessControl /></ProtectedRoute>} />
+            <Route path="/admin/grand-access/member/:memberId" element={<ProtectedRoute requiredRole={UserRole.ADMIN}><GrandAccessDetail /></ProtectedRoute>} />
             <Route path="/admin/edit-website" element={<ProtectedRoute feature={Feature.BRANDING_HUB}><EditWebsite /></ProtectedRoute>} />
             <Route path="/admin/mark-batches" element={<ProtectedRoute feature={Feature.MARK_ENTRY}><ManageMarkBatches /></ProtectedRoute>} />
             <Route path="/admin/staff-directory" element={<ProtectedRoute feature={Feature.STAFF_DIRECTORY}><StaffDirectory /></ProtectedRoute>} />

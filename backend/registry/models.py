@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
@@ -265,6 +267,71 @@ class RolePermission(models.Model):
     def __str__(self):
         return f"{self.role} - {self.feature}: {self.level}"
 
+
+class AccessGrantType(models.TextChoices):
+    HIDE = 'HIDE', _('Hide Menu')
+    VIEW_ALL = 'VIEW_ALL', _('View Only')
+    EDIT_STUDENTS = 'EDIT_STUDENTS', _('Edit Students')
+    EDIT_STAFF = 'EDIT_STAFF', _('Edit Staff')
+    EDIT_HOD = 'EDIT_HOD', _('Edit HOD')
+    EDIT_DEAN = 'EDIT_DEAN', _('Edit Dean')
+    EDIT_STAFF_STUDENTS = 'EDIT_STAFF_STUDENTS', _('Edit Staff Students')
+    EDIT_HOD_STAFF = 'EDIT_HOD_STAFF', _('Edit HOD Staff')
+    EDIT_HOD_STAFF_STUDENTS = 'EDIT_HOD_STAFF_STUDENTS', _('Edit HOD Staff Students')
+    EDIT_ALL = 'EDIT_ALL', _('Edit All')
+    FULL = 'FULL', _('Full Access')
+
+
+class RoleDefinition(models.Model):
+    id = models.CharField(primary_key=True, max_length=30)
+    label = models.CharField(max_length=150)
+    priority = models.PositiveSmallIntegerField(default=100)
+
+    class Meta:
+        ordering = ['priority', 'label']
+
+    def __str__(self):
+        return f"{self.label} ({self.id})"
+
+
+class AccessMenu(models.Model):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=60, unique=True)
+    category = models.CharField(max_length=80)
+    description = models.CharField(max_length=255, blank=True)
+    path = models.CharField(max_length=255, blank=True)
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['category', 'order', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.category})"
+
+
+class RoleMenuPermission(models.Model):
+    role = models.ForeignKey(RoleDefinition, on_delete=models.CASCADE, related_name='menu_permissions')
+    menu = models.ForeignKey(AccessMenu, on_delete=models.CASCADE, related_name='role_permissions')
+    access_type = models.CharField(max_length=30, choices=AccessGrantType.choices, default=AccessGrantType.HIDE)
+
+    class Meta:
+        unique_together = ('role', 'menu')
+
+    def __str__(self):
+        return f"{self.role.id}:{self.menu.slug} -> {self.access_type}"
+
+
+class UserMenuPermission(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='menu_overrides')
+    menu = models.ForeignKey(AccessMenu, on_delete=models.CASCADE, related_name='user_overrides')
+    access_type = models.CharField(max_length=30, choices=AccessGrantType.choices, default=AccessGrantType.HIDE)
+
+    class Meta:
+        unique_together = ('user', 'menu')
+
+    def __str__(self):
+        return f"{self.user_id}:{self.menu.slug} -> {self.access_type}"
+
 class Email(models.Model):
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_emails')
     recipient_email = models.EmailField()
@@ -339,6 +406,11 @@ class TestAttendance(models.Model):
     assigned_invigilator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_examinees')
     marked_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='test_attendance_marks')
     marked_at = models.DateTimeField(auto_now=True)
+    attendance_timestamp = models.DateTimeField(null=True, blank=True)
+    attendance_metadata = models.JSONField(default=dict, blank=True)
+    proof_url = models.URLField(max_length=500, blank=True, null=True)
+    location = models.CharField(max_length=255, blank=True)
+    invigilator_notes = models.TextField(blank=True)
 
     class Meta:
         unique_together = ('test', 'student')
@@ -356,3 +428,174 @@ class StudentSubmission(models.Model):
 
     class Meta:
         unique_together = ('test', 'student')
+
+
+class AssessmentTest(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', _('Draft')
+        SCHEDULED = 'SCHEDULED', _('Scheduled')
+        LIVE = 'LIVE', _('Live')
+        CLOSED = 'CLOSED', _('Closed')
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    creator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='assessment_tests')
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.DRAFT)
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    duration_minutes = models.PositiveIntegerField(default=60)
+    allowed_roles = models.ManyToManyField(RoleDefinition, related_name='allowed_tests', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class TestQuestion(models.Model):
+    class QuestionType(models.TextChoices):
+        MCQ = 'MCQ', _('Multiple Choice')
+        DESCRIPTIVE = 'DESCRIPTIVE', _('Descriptive')
+
+    test = models.ForeignKey(AssessmentTest, related_name='questions', on_delete=models.CASCADE)
+    text = models.TextField()
+    question_type = models.CharField(max_length=20, choices=QuestionType.choices, default=QuestionType.DESCRIPTIVE)
+    max_marks = models.FloatField(default=1.0)
+    mcq_options = models.JSONField(default=list, blank=True)
+    mcq_answer = models.JSONField(default=list, blank=True)
+    rubric = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return f"{self.test.name} - Q{self.order + 1}"
+
+
+class InvigilatorAssignment(models.Model):
+    test = models.ForeignKey(ExaminationTest, on_delete=models.CASCADE, related_name='invigilator_assignments')
+    invigilator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='assigned_sessions')
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    invitation_sent_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class AssignmentStatus(models.TextChoices):
+        PENDING = 'PENDING', _('Pending')
+        ACCEPTED = 'ACCEPTED', _('Accepted')
+        DECLINED = 'DECLINED', _('Declined')
+
+    status = models.CharField(max_length=15, choices=AssignmentStatus.choices, default=AssignmentStatus.PENDING)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    declined_at = models.DateTimeField(null=True, blank=True)
+    declined_reason = models.TextField(blank=True)
+    handshake_token = models.CharField(max_length=36, blank=True, default=uuid.uuid4)
+
+    class Meta:
+        unique_together = ('test', 'invigilator')
+
+    def __str__(self):
+        return f"{self.test.name} - {self.invigilator}"
+
+
+class StudentTestSession(models.Model):
+    class Status(models.TextChoices):
+        LOCKED = 'LOCKED', _('Locked')
+        PRESENT = 'PRESENT', _('Present')
+        ONGOING = 'ONGOING', _('Ongoing')
+        SUBMITTED = 'SUBMITTED', _('Submitted')
+        COMPLETED = 'COMPLETED', _('Completed')
+
+    test = models.ForeignKey(AssessmentTest, on_delete=models.CASCADE, related_name='sessions')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_sessions')
+    invigilator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='invigilated_sessions')
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.LOCKED)
+    invigilator_assigned = models.BooleanField(default=False)
+    started_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    auto_submitted = models.BooleanField(default=False)
+    total_marks = models.FloatField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('test', 'student')
+
+    def __str__(self):
+        return f"{self.test.name} · {self.student}"
+
+
+class QuestionResponse(models.Model):
+    session = models.ForeignKey(StudentTestSession, related_name='responses', on_delete=models.CASCADE)
+    question = models.ForeignKey(TestQuestion, on_delete=models.CASCADE)
+    answer_text = models.TextField(blank=True)
+    mcq_selection = models.JSONField(default=list, blank=True)
+    marks_awarded = models.FloatField(null=True, blank=True)
+    evaluator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='evaluated_responses')
+    evaluated_at = models.DateTimeField(null=True, blank=True)
+    feedback = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ('session', 'question')
+
+    def __str__(self):
+        return f"{self.question} [{self.session.student}]"
+
+
+class TestSessionLock(models.Model):
+    session = models.OneToOneField(StudentTestSession, on_delete=models.CASCADE, related_name='lock_record')
+    locked_at = models.DateTimeField(auto_now_add=True)
+    unlocked_at = models.DateTimeField(null=True, blank=True)
+    violation_count = models.PositiveIntegerField(default=0)
+    last_violation_reason = models.CharField(max_length=255, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True)
+    auto_submit_triggered = models.BooleanField(default=False)
+
+    def mark_violation(self, reason='', meta=None):
+        self.violation_count += 1
+        self.last_violation_reason = reason or self.last_violation_reason
+        if meta:
+            self.metadata = {**self.metadata, **meta}
+        self.save(update_fields=['violation_count', 'last_violation_reason', 'metadata'])
+
+    def __str__(self):
+        return f"Lock for {self.session}"
+
+
+class ProctoringEvent(models.Model):
+    class EventType(models.TextChoices):
+        BLUR = 'BLUR', _('Window Lost Focus')
+        TAB_SWITCH = 'TAB_SWITCH', _('Tab Switch')
+        COPY = 'COPY', _('Copy Attempt')
+        PASTE = 'PASTE', _('Paste Attempt')
+        SCREENSHOT = 'SCREENSHOT', _('Screenshot Attempt')
+        AI_TOOL = 'AI_TOOL', _('AI Tool Detected')
+        FOCUS_RETURN = 'FOCUS_RETURN', _('Focus Restored')
+
+    session = models.ForeignKey(StudentTestSession, related_name='proctor_events', on_delete=models.CASCADE)
+    event_type = models.CharField(max_length=20, choices=EventType.choices)
+    description = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.session} · {self.event_type}"
+
+
+class EvaluationHistory(models.Model):
+    response = models.ForeignKey(QuestionResponse, related_name='history', on_delete=models.CASCADE)
+    previous_marks = models.FloatField(null=True, blank=True)
+    new_marks = models.FloatField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='evaluation_history')
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+
+    def __str__(self):
+        return f"Audit for {self.response}"

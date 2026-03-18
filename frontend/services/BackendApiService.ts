@@ -1,7 +1,8 @@
 import {
     User, MarkBatch, MarkRecord, AttendanceRecord, AttendanceEditRequest,
     LeaveRequest, Timetable, AcademicTask, SiteSettings, PortalConnection,
-    Course, Subject, AcademicBatch, UserRole, Feature, AccessLevel, MembershipRequest
+    Course, Subject, AcademicBatch, UserRole, Feature, AccessLevel, MembershipRequest,
+    MenuItem, RoleDefinition, PermissionEntry, AccessGrantType
 } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -75,6 +76,33 @@ export default class BackendApiService {
 
     static async getCurrentUser(): Promise<User> {
         return this.request(`${API_BASE}/users/me/`);
+    }
+
+    static async getMenus(): Promise<MenuItem[]> {
+        return this.request(`${API_BASE}/access-control/menus/`);
+    }
+
+    static async getRoles(): Promise<RoleDefinition[]> {
+        return this.request(`${API_BASE}/access-control/roles/`);
+    }
+
+    static async getRolePermissions(roleId: string): Promise<PermissionEntry[]> {
+        return this.request(`${API_BASE}/access-control/permissions/role/${roleId}/`);
+    }
+
+    static async getUserPermissions(userId: string): Promise<PermissionEntry[]> {
+        return this.request(`${API_BASE}/access-control/permissions/user/${userId}/`);
+    }
+
+    static async updateUserPermissions(userId: string, permissions: PermissionEntry[]): Promise<void> {
+        await this.request(`${API_BASE}/access-control/permissions/update_user/`, {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId, permissions })
+        });
+    }
+
+    static async getUser(id: string): Promise<User> {
+        return this.request(`${API_BASE}/users/${id}/`);
     }
 
     static async getUsers(): Promise<User[]> {

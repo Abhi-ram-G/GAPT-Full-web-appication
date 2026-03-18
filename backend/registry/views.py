@@ -1,17 +1,28 @@
 from rest_framework import viewsets, permissions, filters, status
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import timedelta
+
+from django.conf import settings
+from rest_framework import viewsets, permissions, filters, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import Avg, Sum, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+import uuid
 from .models import (
     User, Course, Subject, AcademicTask, AttendanceRecord,
     AttendanceEditRequest, MarkBatch, MarkRecord, LeaveRequest, Timetable,
     PortalConnection, Notification, CurriculumEditRequest, SiteSettings,
     AcademicBatch, BatchCourseCurriculum, RolePermission, StudentTaskProgress,
     Email, ChatMessage, InstitutionalSheet, ExaminationTest, TestAttendance, StudentSubmission,
-    MembershipRequest
+    MembershipRequest, AccessMenu, RoleDefinition, RoleMenuPermission, UserMenuPermission, AccessGrantType,
+    AssessmentTest, TestQuestion, InvigilatorAssignment, StudentTestSession, QuestionResponse,
+    TestSessionLock, ProctoringEvent, EvaluationHistory
 )
 from .serializers import (
     UserSerializer, CourseSerializer, SubjectSerializer, AcademicTaskSerializer,
@@ -22,12 +33,199 @@ from .serializers import (
     RolePermissionSerializer, StudentTaskProgressSerializer,
     EmailSerializer, ChatMessageSerializer, InstitutionalSheetSerializer,
     ExaminationTestSerializer, TestAttendanceSerializer, StudentSubmissionSerializer, CustomTokenSerializer,
-    MembershipRequestSerializer
+    MembershipRequestSerializer, AccessMenuSerializer, RoleDefinitionSerializer,
+    RoleMenuPermissionSerializer, UserMenuPermissionSerializer,
+    AssessmentTestSerializer, TestQuestionSerializer, InvigilatorAssignmentSerializer,
+    QuestionResponseSerializer, StudentTestSessionSerializer,
+    TestSessionLockSerializer, ProctoringEventSerializer, EvaluationHistorySerializer
 )
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import AllowAny
+from rest_framework.views import APIView
 from oauth2_provider.views import TokenView
+from oauth2_provider.models import AccessToken, Application, RefreshToken
+from oauthlib.common import generate_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
+from django.db.models import Sum
+
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+BITSATHY_DOMAIN = "@bitsathy.ac.in"
+DEPARTMENT_CODE_MAP = {
+    'ad': 'Artificial Intelligence and Data Science',
+    'al': 'Artificial Intelligence and Machine Learning',
+    'cs': 'Computer Science Engineering',
+    'it': 'Information Technology',
+    'ag': 'Agricultural Engineering',
+    'bm': 'Biomedical Engineering',
+    'ec': 'Electronics and Communication Engineering',
+    'me': 'Mechanical Engineering',
+}
+BATCH_DURATION_YEARS = 4
+
+def exchange_google_code(code: str, redirect_uri: str, code_verifier: str | None = None) -> dict:
+    body = {
+        'code': code,
+        'client_id': settings.GOOGLE_CLIENT_ID,
+        'client_secret': settings.GOOGLE_CLIENT_SECRET,
+        'redirect_uri': redirect_uri,
+        'grant_type': 'authorization_code'
+    }
+    if code_verifier:
+        body['code_verifier'] = code_verifier
+    if not body['client_id'] or not body['client_secret']:
+        raise ValueError('Google OAuth client ID/secret are not configured')
+    data = urllib.parse.urlencode(body).encode()
+    req = urllib.request.Request(GOOGLE_TOKEN_URL, data=data, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        payload = exc.read()
+        try:
+            detail = json.loads(payload)
+            raise ValueError(detail.get('error_description') or detail.get('error') or 'Google token exchange failed')
+        except json.JSONDecodeError:
+            raise ValueError('Google token exchange failed')
+
+def validate_google_id_token(id_token: str) -> dict:
+    if not id_token:
+        raise ValueError('Missing Google ID token')
+    url = f"{GOOGLE_TOKENINFO_URL}?id_token={urllib.parse.quote(id_token)}"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            info = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        raise ValueError('Invalid Google ID token')
+    if info.get('aud') != settings.GOOGLE_CLIENT_ID:
+        raise ValueError('Google client mismatch')
+    if not info.get('email_verified'):
+        raise ValueError('Google email not verified')
+    return info
+
+def parse_bitsathy_email(email: str) -> tuple[str, str, str]:
+    local = email.split('@')[0]
+    fragments = local.split('.', 1)
+    name = fragments[0].replace('_', ' ').title()
+    tail = fragments[1] if len(fragments) > 1 else ''
+    dept_code = tail[:2].lower() if len(tail) >= 2 else ''
+    batch_code = tail[2:4] if len(tail) >= 4 else ''
+    return name, dept_code, batch_code
+
+def resolve_department(dept_code: str) -> tuple[str, Course | None]:
+    dept_name = DEPARTMENT_CODE_MAP.get(dept_code, 'General Engineering')
+    course = Course.objects.filter(name__icontains=dept_name.split()[0]).first()
+    return dept_name, course
+
+def resolve_batch(batch_code: str) -> AcademicBatch:
+    year = timezone.now().year
+    if batch_code and batch_code.isdigit():
+        year = 2000 + int(batch_code)
+    end_year = year + BATCH_DURATION_YEARS
+    name = f"{year}-{end_year}"
+    batch, _ = AcademicBatch.objects.get_or_create(
+        start_year=year,
+        end_year=end_year,
+        defaults={'name': name, 'batch_type': 'UG'}
+    )
+    return batch
+
+def provision_bitsathy_user(email: str, profile: dict) -> User:
+    parsed_name, dept_code, batch_code = parse_bitsathy_email(email)
+    profile_name = profile.get('name') or parsed_name
+    dept_name, course = resolve_department(dept_code)
+    batch = resolve_batch(batch_code)
+    user_defaults = {
+        'username': email.lower(),
+        'name': profile_name,
+        'status': User.Status.APPROVED,
+        'role': User.Role.STUDENT,
+        'department': dept_name,
+        'reg_no': email,
+    }
+    user, created = User.objects.get_or_create(email=email, defaults=user_defaults)
+    if created:
+        user.set_unusable_password()
+    changed = False
+    if user.batch != batch:
+        user.batch = batch
+        changed = True
+    if course and user.course != course:
+        user.course = course
+        changed = True
+    study_year = str(batch.start_year)
+    if user.study_year != study_year:
+        user.study_year = study_year
+        changed = True
+    if changed or created:
+        user.save()
+    return user
+
+def issue_application_tokens(user: User) -> dict:
+    client_id = settings.OAUTH2_APPLICATION_CLIENT_ID or settings.GOOGLE_CLIENT_ID
+    app = Application.objects.filter(client_id=client_id).first()
+    if not app:
+        app = Application.objects.first()
+        if not app:
+            raise ValueError('OAuth2 application is not configured')
+    AccessToken.objects.filter(user=user, application=app).delete()
+    RefreshToken.objects.filter(user=user, application=app).delete()
+    expires = timezone.now() + timedelta(days=7)
+    scope = 'read write'
+    access_token = AccessToken.objects.create(
+        user=user,
+        application=app,
+        token=generate_token(),
+        expires=expires,
+        scope=scope
+    )
+    refresh_token = RefreshToken.objects.create(
+        user=user,
+        application=app,
+        token=generate_token(),
+        access_token=access_token
+    )
+    return {
+        'access_token': access_token.token,
+        'refresh_token': refresh_token.token,
+        'expires_in': int((expires - timezone.now()).total_seconds()),
+        'scope': scope,
+    }
+
+class GoogleLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        code = request.data.get('code')
+        redirect_uri = request.data.get('redirect_uri') or settings.GOOGLE_OAUTH_REDIRECT_URI
+        code_verifier = request.data.get('code_verifier')
+        if not code or not redirect_uri:
+            return Response({'error': 'code and redirect_uri are required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            token_resp = exchange_google_code(code, redirect_uri, code_verifier)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        id_token = token_resp.get('id_token')
+        if not id_token:
+            return Response({'error': 'Google did not return an ID token'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            profile = validate_google_id_token(id_token)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        email = profile.get('email', '').lower()
+        if not email.endswith(BITSATHY_DOMAIN):
+            return Response({'error': 'Please sign in with your @bitsathy.ac.in address'}, status=status.HTTP_400_BAD_REQUEST)
+        user = provision_bitsathy_user(email, profile)
+        payload = issue_application_tokens(user)
+        user_data = UserSerializer(user).data
+        return Response({
+            **payload,
+            'token_type': 'Bearer',
+            'user': user_data,
+        }, status=status.HTTP_200_OK)
 
 class FileUploadView(viewsets.ViewSet):
     parser_classes = (MultiPartParser, FormParser)
@@ -490,6 +688,431 @@ class RolePermissionViewSet(viewsets.ModelViewSet):
         )
         return Response(self.get_serializer(perm).data)
 
+DEFAULT_ROLES = [
+    {'id': 'ADMIN', 'label': 'Administrator', 'priority': 0},
+    {'id': 'DEAN', 'label': 'Dean', 'priority': 1},
+    {'id': 'HOD', 'label': 'Head of Department', 'priority': 2},
+    {'id': 'STAFF', 'label': 'Staff', 'priority': 3},
+    {'id': 'STUDENT', 'label': 'Student', 'priority': 4}
+]
+
+MENU_CATALOG = [
+    {'slug': 'member-directory', 'name': 'Member Directory', 'category': 'Governance', 'description': 'Institutional registry', 'path': '/admin/users', 'order': 10},
+    {'slug': 'staff-directory', 'name': 'Staff Directory', 'category': 'Governance', 'description': 'Institutional registry', 'path': '/admin/staff-directory', 'order': 20},
+    {'slug': 'student-directory', 'name': 'Student Directory', 'category': 'Governance', 'description': 'Institutional registry', 'path': '/admin/student-directory', 'order': 30},
+    {'slug': 'cohort-registry', 'name': 'Cohort Registry', 'category': 'Governance', 'description': 'Academic division control', 'path': '/admin/departments', 'order': 40},
+    {'slug': 'access-requests', 'name': 'Access Requests', 'category': 'Governance', 'description': 'Pending approvals', 'path': '/admin/requests', 'order': 50},
+    {'slug': 'identity-creator', 'name': 'Identity Creator', 'category': 'Governance', 'description': 'Create mail identities', 'path': '/admin/create-mail', 'order': 60},
+    {'slug': 'interlink-control', 'name': 'Interlink Control', 'category': 'Governance', 'description': 'Manage portal connections', 'path': '/admin/portal-connection', 'order': 70},
+    {'slug': 'branding-hub', 'name': 'Branding Hub', 'category': 'Governance', 'description': 'Edit brand assets', 'path': '/admin/edit-website', 'order': 80},
+    {'slug': 'access-matrix', 'name': 'Access Matrix', 'category': 'Governance', 'description': 'Permission matrix', 'path': '/admin/access', 'order': 90},
+    {'slug': 'grand-access', 'name': 'Grand Access', 'category': 'Governance', 'description': 'Governance control', 'path': '/admin/grand-access', 'order': 100},
+    {'slug': 'update-marks', 'name': 'Update Marks', 'category': 'Academic Ops', 'description': 'Mark entry', 'path': '/staff/mark-entry', 'order': 110},
+    {'slug': 'daily-attendance', 'name': 'Daily Attendance', 'category': 'Academic Ops', 'description': 'Track attendance', 'path': '/staff/attendance', 'order': 120},
+    {'slug': 'study-materials', 'name': 'Study Materials', 'category': 'Academic Ops', 'description': 'Resource hub', 'path': '/student/materials', 'order': 130},
+    {'slug': 'staff-assignment', 'name': 'Staff Assignment', 'category': 'Academic Ops', 'description': 'Mentor assignment', 'path': '/staff/assignments', 'order': 140},
+    {'slug': 'leave-management', 'name': 'Leave Management', 'category': 'Academic Ops', 'description': 'Approve leaves', 'path': '/staff/leave-approval', 'order': 150},
+    {'slug': 'assignments', 'name': 'Tasks', 'category': 'Academic Ops', 'description': 'Academic tasks', 'path': '/staff/task-registry', 'order': 160},
+    {'slug': 'academic-analytics', 'name': 'Analytics', 'category': 'Academic Ops', 'description': 'Performance insights', 'path': '/analytics/student-tracker', 'order': 170},
+    {'slug': 'green-insights', 'name': 'Green Insights', 'category': 'Academic Ops', 'description': 'Sustainability metrics', 'path': '/analytics/student-tracker', 'order': 180},
+    {'slug': 'mentor-assignment', 'name': 'Mentor Assignment', 'category': 'Academic Ops', 'description': 'Mentor routing', 'path': '/hod/assign-students', 'order': 190},
+    {'slug': 'chat-hub', 'name': 'Chat Hub', 'category': 'Academic Ops', 'description': 'Real-time chat', 'path': '/chat', 'order': 200},
+    {'slug': 'bitmail', 'name': 'BITmail', 'category': 'Academic Ops', 'description': 'Institutional mail', 'path': '/email', 'order': 210},
+    {'slug': 'institutional-sheets', 'name': 'Institutional Sheets', 'category': 'Support', 'description': 'Spreadsheet data', 'path': '/spreadsheet', 'order': 220},
+    {'slug': 'profile-editor', 'name': 'Profile Editor', 'category': 'Support', 'description': 'Edit profile', 'path': '/edit-profile', 'order': 230},
+    {'slug': 'examination-portal', 'name': 'Examination Portal', 'category': 'Support', 'description': 'Exams dashboard', 'path': '/examination-portal', 'order': 240}
+]
+
+ROLE_DEFAULT_ACCESS = {
+    'ADMIN': AccessGrantType.FULL,
+    'DEAN': AccessGrantType.FULL,
+    'HOD': AccessGrantType.FULL,
+    'STAFF': AccessGrantType.VIEW_ALL,
+    'STUDENT': AccessGrantType.VIEW_ALL
+}
+
+def _ensure_roles():
+    for entry in DEFAULT_ROLES:
+        RoleDefinition.objects.update_or_create(
+            id=entry['id'],
+            defaults={'label': entry['label'], 'priority': entry['priority']}
+        )
+
+def _ensure_menus():
+    for entry in MENU_CATALOG:
+        data = entry.copy()
+        slug = data.pop('slug')
+        AccessMenu.objects.update_or_create(
+            slug=slug,
+            defaults=data
+        )
+
+def _ensure_role_permissions():
+    for role in RoleDefinition.objects.all():
+        fallback = ROLE_DEFAULT_ACCESS.get(role.id, AccessGrantType.VIEW_ALL)
+        for menu in AccessMenu.objects.all():
+            RoleMenuPermission.objects.get_or_create(
+                role=role,
+                menu=menu,
+                defaults={'access_type': fallback}
+            )
+
+class AccessControlViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAdminUser]
+
+    def _ensure_catalog(self):
+        _ensure_roles()
+        _ensure_menus()
+        _ensure_role_permissions()
+
+    @action(detail=False, methods=['get'])
+    def menus(self, request):
+        self._ensure_catalog()
+        menus = AccessMenu.objects.all()
+        serializer = AccessMenuSerializer(menus, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def roles(self, request):
+        self._ensure_catalog()
+        serializer = RoleDefinitionSerializer(RoleDefinition.objects.all(), many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path=r'permissions/role/(?P<role_id>[^/.]+)')
+    def role_permissions(self, request, role_id=None):
+        self._ensure_catalog()
+        perms = RoleMenuPermission.objects.filter(role__id=role_id)
+        serializer = RoleMenuPermissionSerializer(perms, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path=r'permissions/user/(?P<user_id>[^/.]+)')
+    def user_permissions(self, request, user_id=None):
+        perms = UserMenuPermission.objects.filter(user__id=user_id)
+        serializer = UserMenuPermissionSerializer(perms, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='permissions/update_user')
+    def update_user_permissions(self, request):
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        user = User.objects.filter(id=user_id).first()
+        if not user:
+            return Response({'detail': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        permissions = request.data.get('permissions', [])
+        saved = []
+        for entry in permissions:
+            menu_id = entry.get('menuId')
+            access_type = entry.get('accessType')
+            if access_type not in AccessGrantType.values:
+                continue
+            menu = AccessMenu.objects.filter(id=menu_id).first()
+            if not menu:
+                continue
+            perm, _ = UserMenuPermission.objects.update_or_create(
+                user=user,
+                menu=menu,
+                defaults={'access_type': access_type}
+            )
+            saved.append(perm)
+        serializer = UserMenuPermissionSerializer(saved, many=True)
+        return Response(serializer.data)
+
+
+class AssessmentTestViewSet(viewsets.ModelViewSet):
+    queryset = AssessmentTest.objects.all()
+    serializer_class = AssessmentTestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        role_def = RoleDefinition.objects.filter(id=self.request.user.role).first()
+        if role_def:
+            qs = qs.filter(allowed_roles=role_def)
+        return qs.distinct()
+
+    @action(detail=True, methods=['post'])
+    def mark_attendance(self, request, pk=None):
+        test = self.get_object()
+        student_id = request.data.get('student_id')
+        invig = request.user
+        assignment = InvigilatorAssignment.objects.filter(test=test, invigilator=invig).first()
+        if not assignment:
+            return Response({'detail': 'Invigilator not assigned'}, status=status.HTTP_403_FORBIDDEN)
+        if assignment.status != InvigilatorAssignment.AssignmentStatus.ACCEPTED:
+            return Response({'detail': 'Assignment pending acceptance'}, status=status.HTTP_403_FORBIDDEN)
+        att_defaults = {
+            'is_present': True,
+            'assigned_invigilator': invig,
+            'marked_by': invig,
+            'attendance_timestamp': timezone.now(),
+            'attendance_metadata': request.data.get('metadata', {}),
+            'proof_url': request.data.get('proofUrl') or request.data.get('proof_url'),
+            'location': request.data.get('location'),
+            'invigilator_notes': request.data.get('notes') or request.data.get('invigilatorNotes', '')
+        }
+        TestAttendance.objects.update_or_create(
+            test=test,
+            student_id=student_id,
+            defaults=att_defaults
+        )
+        session, _ = StudentTestSession.objects.get_or_create(
+            test=test,
+            student_id=student_id,
+            defaults={'invigilator': invig}
+        )
+        session.invigilator_assigned = True
+        session.status = StudentTestSession.Status.PRESENT
+        session.invigilator = invig
+        session.save()
+        return Response(StudentTestSessionSerializer(session).data)
+
+    @action(detail=True, methods=['post'])
+    def start_session(self, request, pk=None):
+        test = self.get_object()
+        session = StudentTestSession.objects.filter(test=test, student=request.user).first()
+        attendance = TestAttendance.objects.filter(test=test, student=request.user, is_present=True).first()
+        if not attendance:
+            return Response({'detail': 'Attendance pending'}, status=status.HTTP_400_BAD_REQUEST)
+        lock = getattr(session, 'lock_record', None)
+        if lock and lock.is_active:
+            return Response({'detail': 'Session locked by invigilator'}, status=status.HTTP_403_FORBIDDEN)
+        if not session or session.status not in (StudentTestSession.Status.PRESENT,):
+            return Response({'detail': 'Attendance pending'}, status=status.HTTP_400_BAD_REQUEST)
+        if session.started_at:
+            return Response({'detail': 'Already started'}, status=status.HTTP_400_BAD_REQUEST)
+        now = timezone.now()
+        expires = now + timezone.timedelta(minutes=test.duration_minutes)
+        session.started_at = now
+        session.expires_at = expires
+        session.status = StudentTestSession.Status.ONGOING
+        session.save()
+        return Response({'session_id': session.id, 'expires_at': expires})
+
+    @action(detail=True, methods=['post'])
+    def submit_responses(self, request, pk=None):
+        test = self.get_object()
+        session = StudentTestSession.objects.filter(test=test, student=request.user).first()
+        if not session or session.status != StudentTestSession.Status.ONGOING:
+            return Response({'detail': 'Session not active'}, status=status.HTTP_400_BAD_REQUEST)
+        lock = getattr(session, 'lock_record', None)
+        if lock and lock.is_active and not lock.auto_submit_triggered:
+            return Response({'detail': 'Session locked by invigilator'}, status=status.HTTP_403_FORBIDDEN)
+        if session.expires_at and timezone.now() > session.expires_at:
+            session.auto_submitted = True
+            if lock:
+                lock.auto_submit_triggered = True
+                lock.is_active = False
+                lock.unlocked_at = timezone.now()
+                lock.save()
+        responses = request.data.get('responses', [])
+        total = 0.0
+        for payload in responses:
+            question = TestQuestion.objects.filter(test=test, id=payload.get('question_id')).first()
+            if not question:
+                continue
+            resp, _ = QuestionResponse.objects.update_or_create(session=session, question=question)
+            resp.answer_text = payload.get('answer_text', '')
+            resp.mcq_selection = payload.get('mcq_selection', [])
+            resp.feedback = payload.get('feedback', '')
+            if question.question_type == TestQuestion.QuestionType.MCQ:
+                correct = set(question.mcq_answer or [])
+                selected = set(resp.mcq_selection or [])
+                if correct == selected:
+                    resp.marks_awarded = question.max_marks
+                else:
+                    resp.marks_awarded = 0.0
+            resp.save()
+            if resp.marks_awarded:
+                total += resp.marks_awarded
+        session.total_marks = total
+        session.status = StudentTestSession.Status.SUBMITTED
+        session.submitted_at = timezone.now()
+        session.save()
+        if lock:
+            lock.is_active = False
+            lock.unlocked_at = timezone.now()
+            lock.save()
+        return Response(StudentTestSessionSerializer(session).data)
+
+
+class QuestionResponseViewSet(viewsets.ModelViewSet):
+    queryset = QuestionResponse.objects.all()
+    serializer_class = QuestionResponseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    @action(detail=True, methods=['post'])
+    def evaluate(self, request, pk=None):
+        resp = self.get_object()
+        prev_marks = resp.marks_awarded
+        resp.marks_awarded = float(request.data.get('marks_awarded', 0))
+        resp.feedback = request.data.get('feedback', '')
+        resp.evaluator = request.user
+        resp.evaluated_at = timezone.now()
+        resp.save()
+        EvaluationHistory.objects.create(
+            response=resp,
+            previous_marks=prev_marks,
+            new_marks=resp.marks_awarded,
+            notes=request.data.get('notes', ''),
+            changed_by=request.user
+        )
+        session = resp.session
+        agg = session.responses.aggregate(total=Sum('marks_awarded'))
+        session.total_marks = agg['total'] or 0.0
+        session.save()
+        return Response(self.get_serializer(resp).data)
+
+
+class StudentTestSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = StudentTestSession.objects.all()
+    serializer_class = StudentTestSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user.role == User.Role.STUDENT:
+            return qs.filter(student=user)
+        if user.role in [User.Role.STAFF, User.Role.HOD, User.Role.DEAN]:
+            return qs.filter(Q(invigilator=user) | Q(test__invigilators=user)).distinct()
+        return qs.none()
+
+    @action(detail=True, methods=['post'])
+    def lock_session(self, request, pk=None):
+        session = self.get_object()
+        if request.user.role not in [User.Role.STAFF, User.Role.HOD, User.Role.DEAN]:
+            return Response({'detail': 'Only invigilators may lock sessions'}, status=status.HTTP_403_FORBIDDEN)
+        lock, created = TestSessionLock.objects.get_or_create(session=session)
+        lock.is_active = True
+        lock.locked_at = timezone.now()
+        lock.last_violation_reason = request.data.get('reason', 'Invigilator locked the session')
+        metadata = request.data.get('metadata', {})
+        if metadata:
+            lock.metadata = {**lock.metadata, **metadata}
+        lock.save()
+        session.status = StudentTestSession.Status.LOCKED
+        session.save(update_fields=['status'])
+        return Response(TestSessionLockSerializer(lock).data)
+
+    @action(detail=True, methods=['post'])
+    def release_lock(self, request, pk=None):
+        session = self.get_object()
+        lock = getattr(session, 'lock_record', None)
+        if not lock:
+            return Response({'detail': 'No lock record exists'}, status=status.HTTP_400_BAD_REQUEST)
+        lock.is_active = False
+        lock.unlocked_at = timezone.now()
+        lock.save()
+        if session.status == StudentTestSession.Status.LOCKED:
+            session.status = StudentTestSession.Status.PRESENT
+            session.save(update_fields=['status'])
+        return Response(TestSessionLockSerializer(lock).data)
+
+    @action(detail=True, methods=['post'])
+    def report_violation(self, request, pk=None):
+        session = self.get_object()
+        if request.user.role not in [User.Role.STAFF, User.Role.HOD, User.Role.DEAN]:
+            return Response({'detail': 'Only invigilators may report violations'}, status=status.HTTP_403_FORBIDDEN)
+        event_type = request.data.get('event_type', ProctoringEvent.EventType.BLUR)
+        description = request.data.get('description', '')
+        metadata = request.data.get('metadata', {})
+        event = ProctoringEvent.objects.create(
+            session=session,
+            event_type=event_type,
+            description=description,
+            metadata=metadata
+        )
+        lock, _ = TestSessionLock.objects.get_or_create(session=session)
+        lock.mark_violation(reason=description or event_type, meta=metadata)
+        if lock.violation_count >= 3:
+            session.auto_submitted = True
+            session.status = StudentTestSession.Status.COMPLETED
+            session.save(update_fields=['auto_submitted', 'status'])
+        return Response({
+            'lock': TestSessionLockSerializer(lock).data,
+            'event': ProctoringEventSerializer(event).data
+        })
+
+
+class InvigilatorAssignmentViewSet(viewsets.ModelViewSet):
+    queryset = InvigilatorAssignment.objects.all()
+    serializer_class = InvigilatorAssignmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == User.Role.STAFF:
+            return super().get_queryset().filter(invigilator=user)
+        return super().get_queryset()
+
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        assignment = self.get_object()
+        if assignment.invigilator != request.user:
+            return Response({'detail': 'Not your assignment'}, status=status.HTTP_403_FORBIDDEN)
+        assignment.status = assignment.AssignmentStatus.ACCEPTED
+        assignment.accepted_at = timezone.now()
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=['post'])
+    def decline(self, request, pk=None):
+        assignment = self.get_object()
+        if assignment.invigilator != request.user:
+            return Response({'detail': 'Not your assignment'}, status=status.HTTP_403_FORBIDDEN)
+        assignment.status = assignment.AssignmentStatus.DECLINED
+        assignment.declined_reason = request.data.get('reason', '')
+        assignment.declined_at = timezone.now()
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=['post'])
+    def refresh_invitation(self, request, pk=None):
+        assignment = self.get_object()
+        assignment.handshake_token = str(uuid.uuid4())
+        assignment.invitation_sent_at = timezone.now()
+        assignment.status = assignment.AssignmentStatus.PENDING
+        assignment.save()
+        return Response(self.get_serializer(assignment).data)
+
+
+class TestSessionLockViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = TestSessionLock.objects.select_related('session', 'session__student').all()
+    serializer_class = TestSessionLockSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user.role == User.Role.STUDENT:
+            return qs.filter(session__student=user)
+        if user.role in [User.Role.STAFF, User.Role.HOD, User.Role.DEAN]:
+            return qs.filter(Q(session__invigilator=user) | Q(session__test__invigilators=user)).distinct()
+        return qs.none()
+
+
+class ProctoringEventViewSet(viewsets.ModelViewSet):
+    queryset = ProctoringEvent.objects.select_related('session', 'session__student').all()
+    serializer_class = ProctoringEventSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user.role == User.Role.STUDENT:
+            return qs.filter(session__student=user)
+        return qs.filter(Q(session__invigilator=user) | Q(session__test__invigilators=user)).distinct()
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+
+class EvaluationHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = EvaluationHistory.objects.select_related('response', 'changed_by').all()
+    serializer_class = EvaluationHistorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
 class EmailViewSet(viewsets.ModelViewSet):
     queryset = Email.objects.all()
     serializer_class = EmailSerializer
@@ -670,7 +1293,29 @@ class ExaminationTestViewSet(viewsets.ModelViewSet):
         if end_dt:
             test.end_time = end_dt
         if isinstance(invigilators, list):
-            test.invigilators.set(invigilators)
+            valid_invigilators = []
+            for inv_id in invigilators:
+                inv = User.objects.filter(id=inv_id).first()
+                if not inv:
+                    continue
+                valid_invigilators.append(inv)
+                defaults = {
+                    'window_start': start_dt or test.start_time or timezone.now(),
+                    'window_end': end_dt or test.end_time or timezone.now(),
+                    'status': InvigilatorAssignment.AssignmentStatus.PENDING,
+                    'invitation_sent_at': timezone.now()
+                }
+                assignment, created = InvigilatorAssignment.objects.update_or_create(
+                    test=test,
+                    invigilator=inv,
+                    defaults=defaults
+                )
+                if created or not assignment.handshake_token:
+                    assignment.handshake_token = str(uuid.uuid4())
+                if assignment.status != InvigilatorAssignment.AssignmentStatus.ACCEPTED:
+                    assignment.status = InvigilatorAssignment.AssignmentStatus.PENDING
+                assignment.save()
+            test.invigilators.set(valid_invigilators)
         test.save()
         return Response(self.get_serializer(test).data)
 
@@ -690,6 +1335,21 @@ class ExaminationTestViewSet(viewsets.ModelViewSet):
         inv = User.objects.filter(id=invigilator_id).first()
         if not inv:
             return Response({"error": "Invigilator not found"}, status=status.HTTP_404_NOT_FOUND)
+        assignment, created = InvigilatorAssignment.objects.get_or_create(
+            test=test,
+            invigilator=inv,
+            defaults={
+                'window_start': test.start_time or timezone.now(),
+                'window_end': test.end_time or (test.start_time or timezone.now()),
+                'status': InvigilatorAssignment.AssignmentStatus.PENDING,
+                'invitation_sent_at': timezone.now()
+            }
+        )
+        if created or not assignment.handshake_token:
+            assignment.handshake_token = str(uuid.uuid4())
+        if assignment.status != InvigilatorAssignment.AssignmentStatus.ACCEPTED:
+            assignment.status = InvigilatorAssignment.AssignmentStatus.PENDING
+        assignment.save()
         # store mapping via TestAttendance.assigned_invigilator
         for sid in student_ids:
             TestAttendance.objects.update_or_create(
@@ -806,13 +1466,19 @@ class TestAttendanceViewSet(viewsets.ModelViewSet):
         if isinstance(is_present, str):
             present_bool = is_present.strip().lower() in ['1', 'true', 'yes', 'y', 'on']
 
+        att_defaults = {
+            "is_present": bool(present_bool),
+            "marked_by": request.user,
+            "attendance_timestamp": timezone.now(),
+            "attendance_metadata": request.data.get('metadata', {}),
+            "proof_url": request.data.get('proofUrl') or request.data.get('proof_url'),
+            "location": request.data.get('location'),
+            "invigilator_notes": request.data.get('notes') or request.data.get('invigilatorNotes', '')
+        }
         att, _ = TestAttendance.objects.update_or_create(
             test_id=test_id,
             student_id=student_id,
-            defaults={
-                "is_present": bool(present_bool),
-                "marked_by": request.user
-            }
+            defaults=att_defaults
         )
         return Response(TestAttendanceSerializer(att).data)
 

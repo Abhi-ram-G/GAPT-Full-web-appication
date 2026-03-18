@@ -2,7 +2,7 @@ import React, { useEffect, useState, useContext, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../AuthContext';
 import { ApiService } from '../store';
-import { User, AcademicBatch, Course, Subject } from '../types';
+import { User, UserRole, AcademicBatch, Course, Subject } from '../types';
 import { BookOpen, Clock, Users, AlertCircle, Edit3, Calendar, X, Plus } from 'lucide-react';
 
 type Test = {
@@ -86,6 +86,14 @@ const ExaminationPortal: React.FC = () => {
       return {};
     }
   });
+  const [evaluatorMap, setEvaluatorMap] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem('test_evaluators');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const submissionDetailRef = useRef<HTMLDivElement>(null);
 
   const toggleViewer = (id: string) => {
@@ -105,6 +113,25 @@ const ExaminationPortal: React.FC = () => {
     setViewerMap(updated);
     localStorage.setItem('eval_viewers', JSON.stringify(updated));
     setViewShareOpen(false);
+  };
+
+  const assignEvaluator = (testId: string) => {
+    if (staffList.length === 0) {
+      alert('No staff available to assign as evaluator.');
+      return;
+    }
+    const options = staffList.map(s => `${s.id}: ${s.name || s.username || s.email}`).join('\n');
+    const chosen = window.prompt(`Select evaluator by entering ID:\n${options}`);
+    if (!chosen) return;
+    const staffId = staffList.find(s => String(s.id) === String(chosen))?.id;
+    if (!staffId) {
+      alert('Invalid staff selection.');
+      return;
+    }
+    const updated = { ...evaluatorMap, [testId]: String(staffId) };
+    setEvaluatorMap(updated);
+    localStorage.setItem('test_evaluators', JSON.stringify(updated));
+    alert('Evaluator mapped successfully.');
   };
 
   useEffect(() => {
@@ -163,7 +190,9 @@ const ExaminationPortal: React.FC = () => {
     if (user.role === 'STAFF') {
       return tests.filter(t => {
         const invIds: string[] = ((t as any).invigilators || []).map((x: any) => String(x));
-        return invIds.includes(String(user.id)) || String((t as any).staff) === String(user.id);
+        const isCreator = String((t as any).staff) === String(user.id);
+        const isEvaluator = evaluatorMap[String(t.id)] === String(user.id);
+        return invIds.includes(String(user.id)) || isCreator || isEvaluator;
       });
     }
 
@@ -204,7 +233,7 @@ const ExaminationPortal: React.FC = () => {
     }
 
     return tests;
-  }, [tests, user]);
+  }, [tests, user, evaluatorMap]);
 
   const extractQuestions = (t: Test) => {
     const qd = (t as any).questions_data || (t as any).questionsData || {};
@@ -466,65 +495,163 @@ const ExaminationPortal: React.FC = () => {
                     <Calendar size={14} /> {formatDateOnly(test.createdAt)}
                   </div>
                   <div className="flex gap-2">
-                    {user?.role === 'STUDENT' && (
-                      <button
-                        onClick={() => handleOpenTest(test)}
-                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
-                      >
-                        Take Test
-                      </button>
-                    )}
-                    {user?.role === 'STAFF' && (
-                      <button
-                        onClick={() => navigate(`/examination/attendance/${test.id}`)}
-                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
-                      >
-                        Monitor / Attendance
-                      </button>
-                    )}
-                    {user?.role !== 'STUDENT' && user?.role !== 'STAFF' && (
-                      <>
-                        <button
-                          onClick={() => {
-                            const params = new URLSearchParams();
-                            if (test.batchName) params.set('batch', test.batchName);
-                            if (test.departmentName) params.set('department', test.departmentName);
-                            navigate(`/examination/schedule/${test.id}?${params.toString()}`);
-                          }}
-                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-[11px] font-black uppercase tracking-widest transition-all"
-                        >
-                          Schedule
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setEvaluationTest(test);
-                            setIsLoadingSubs(true);
-                            setSelectedSubmissionId(null);
-                            setMarksDraft({});
-                            try {
-                              const subs = await ApiService.getTestSubmissions(String(test.id));
-                              setSubmissions(subs || []);
-                              // preload first submission marks if available
-                              if (subs && subs.length > 0) {
-                                const ms = subs[0].marks_assigned || subs[0].marksAssigned || {};
-                                const normalized: Record<string, number> = {};
-                                Object.keys(ms || {}).forEach(k => normalized[k] = Number(ms[k]) || 0);
-                                setMarksDraft(normalized);
-                                setSelectedSubmissionId(String(subs[0].id || 0));
+                    {(() => {
+                      const creatorId = String((test as any).staff);
+                      const isCreator = creatorId === String(user?.id);
+                      const isAdmin = user?.role === UserRole.ADMIN;
+
+                      if (user?.role === UserRole.STUDENT) {
+                        return (
+                          <button
+                            onClick={() => handleOpenTest(test)}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Take Test
+                          </button>
+                        );
+                      }
+
+                      if (user?.role === UserRole.STAFF) {
+                        if (isCreator) {
+                          return (
+                            <>
+                              <button
+                                onClick={() => navigate(`/examination/attendance/${test.id}`)}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                              >
+                                Monitor / Attendance
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const params = new URLSearchParams();
+                                  if (test.batchName) params.set('batch', test.batchName);
+                                  if (test.departmentName) params.set('department', test.departmentName);
+                                  navigate(`/examination/schedule/${test.id}?${params.toString()}`);
+                                }}
+                                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                              >
+                                Schedule
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const currentUserName = (user?.name || user?.username || '').trim();
+                                  const creator = staffList.find(s => String(s.id) === creatorId);
+                                  const creatorName = (creator?.name || creator?.username || '').trim();
+                                  const evaluatorId = evaluatorMap[String(test.id)];
+                                  const isEvaluator = evaluatorId && String(evaluatorId) === String(user?.id);
+
+                                  if (!isCreator && !isEvaluator && user?.role !== UserRole.ADMIN) {
+                                    alert(`This is your name (${currentUserName || 'Unknown'}). Evaluation page is only open for test created person (${creatorName || 'Creator'}).`);
+                                    return;
+                                  }
+
+                                  if ((isCreator || user?.role === UserRole.ADMIN) && !evaluatorId) {
+                                    if (window.confirm('No evaluator mapped. Do you want to assign one now?')) {
+                                      assignEvaluator(String(test.id));
+                                      return;
+                                    }
+                                  }
+                                  setEvaluationTest(test);
+                                  setIsLoadingSubs(true);
+                                  setSelectedSubmissionId(null);
+                                  setMarksDraft({});
+                                  try {
+                                    const subs = await ApiService.getTestSubmissions(String(test.id));
+                                    setSubmissions(subs || []);
+                                    if (subs && subs.length > 0) {
+                                      const ms = subs[0].marks_assigned || subs[0].marksAssigned || {};
+                                      const normalized: Record<string, number> = {};
+                                      Object.keys(ms || {}).forEach(k => normalized[k] = Number(ms[k]) || 0);
+                                      setMarksDraft(normalized);
+                                      setSelectedSubmissionId(String(subs[0].id || 0));
+                                    }
+                                  } catch (e) {
+                                    alert('Failed to load submissions');
+                                    setEvaluationTest(null);
+                                  } finally {
+                                    setIsLoadingSubs(false);
+                                  }
+                                }}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                              >
+                                Evaluation
+                              </button>
+                            </>
+                          );
+                        }
+                        // Staff but not creator: only monitor/attendance
+                        return (
+                          <button
+                            onClick={() => navigate(`/examination/attendance/${test.id}`)}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Monitor / Attendance
+                          </button>
+                        );
+                      }
+
+                      // Admin / other roles
+                      return (
+                        <>
+                          <button
+                            onClick={() => {
+                              const params = new URLSearchParams();
+                              if (test.batchName) params.set('batch', test.batchName);
+                              if (test.departmentName) params.set('department', test.departmentName);
+                              navigate(`/examination/schedule/${test.id}?${params.toString()}`);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Schedule
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const currentUserName = (user?.name || user?.username || '').trim();
+                              const creatorIdInner = String((test as any).staff);
+                              const creatorInner = staffList.find(s => String(s.id) === creatorIdInner);
+                              const creatorNameInner = (creatorInner?.name || creatorInner?.username || '').trim();
+                              const evaluatorId = evaluatorMap[String(test.id)];
+                              const isEvaluator = evaluatorId && String(evaluatorId) === String(user?.id);
+
+                              if (user?.role !== UserRole.ADMIN && !isEvaluator) {
+                                alert(`This is your name (${currentUserName || 'Unknown'}). Evaluation page is only open for test created person (${creatorNameInner || 'Creator'}).`);
+                                return;
                               }
-                            } catch (e) {
-                              alert('Failed to load submissions');
-                              setEvaluationTest(null);
-                            } finally {
-                              setIsLoadingSubs(false);
-                            }
-                          }}
-                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
-                        >
-                          Evaluation
-                        </button>
-                      </>
-                    )}
+
+                              if (!evaluatorId) {
+                                if (window.confirm('No evaluator mapped. Do you want to assign one now?')) {
+                                  assignEvaluator(String(test.id));
+                                  return;
+                                }
+                              }
+                              setEvaluationTest(test);
+                              setIsLoadingSubs(true);
+                              setSelectedSubmissionId(null);
+                              setMarksDraft({});
+                              try {
+                                const subs = await ApiService.getTestSubmissions(String(test.id));
+                                setSubmissions(subs || []);
+                                if (subs && subs.length > 0) {
+                                  const ms = subs[0].marks_assigned || subs[0].marksAssigned || {};
+                                  const normalized: Record<string, number> = {};
+                                  Object.keys(ms || {}).forEach(k => normalized[k] = Number(ms[k]) || 0);
+                                  setMarksDraft(normalized);
+                                  setSelectedSubmissionId(String(subs[0].id || 0));
+                                }
+                              } catch (e) {
+                                alert('Failed to load submissions');
+                                setEvaluationTest(null);
+                              } finally {
+                                setIsLoadingSubs(false);
+                              }
+                            }}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Evaluation
+                          </button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -677,6 +804,13 @@ const ExaminationPortal: React.FC = () => {
                   onClick={async () => {
                     if (!formData.title || !formData.batchId || !formData.departmentId || !formData.subjectId || !formData.staffId) {
                       alert('Please fill all required fields.');
+                      return;
+                    }
+                    const currentUserName = (user?.name || user?.username || '').trim().toLowerCase();
+                    const selectedStaff = staffList.find(s => String(s.id) === String(formData.staffId));
+                    const selectedStaffName = (selectedStaff?.name || selectedStaff?.username || '').trim().toLowerCase();
+                    if (currentUserName && selectedStaffName && currentUserName !== selectedStaffName) {
+                      alert(`This is your name (${user?.name || user?.username || 'you'}). Please select your name in Responsible Staff to create test.`);
                       return;
                     }
                     try {
@@ -920,7 +1054,9 @@ const ExaminationPortal: React.FC = () => {
                       'Student';
                     const sid = String(sub.id || idx);
                     const isActive = selectedSubmissionId ? selectedSubmissionId === sid : idx === 0;
-                    const canGrade = user && (user.role !== 'STAFF' || String((evaluationTest as any).staff) === String(user.id));
+                    const isCreator = String((evaluationTest as any).staff) === String(user?.id);
+                    const isEvaluator = evaluatorMap[String(evaluationTest?.id)] === String(user?.id);
+                    const canGrade = !!user && (user.role === UserRole.ADMIN || isCreator || isEvaluator || user.role !== 'STAFF');
                     return (
                       <div
                         key={sid}
@@ -968,7 +1104,9 @@ const ExaminationPortal: React.FC = () => {
                     const answers = sub?.answers || {};
                     const questions = extractQuestions(evaluationTest);
                     const assignedMap = sub?.marks_assigned || sub?.marksAssigned || {};
-                    const canGrade = user && (user.role !== 'STAFF' || String((evaluationTest as any).staff) === String(user.id));
+                    const isCreator = String((evaluationTest as any).staff) === String(user?.id);
+                    const isEvaluator = evaluatorMap[String(evaluationTest?.id)] === String(user?.id);
+                    const canGrade = !!user && (user.role === UserRole.ADMIN || isCreator || isEvaluator || user.role !== 'STAFF');
                     const totalScored = questions.reduce((sum, q) => {
                       const val = marksDraft[q.id] ?? assignedMap?.[q.id] ?? 0;
                       return sum + (Number(val) || 0);

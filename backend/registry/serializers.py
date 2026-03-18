@@ -5,7 +5,9 @@ from .models import (
     HourAssignment, PortalConnection, Notification, CurriculumEditRequest, SiteSettings,
     AcademicBatch, BatchCourseCurriculum, RolePermission, StudentTaskProgress,
     Email, ChatMessage, InstitutionalSheet, ExaminationTest, TestAttendance, StudentSubmission,
-    MembershipRequest
+    MembershipRequest, AccessMenu, RoleDefinition, RoleMenuPermission, UserMenuPermission,
+    AssessmentTest, TestQuestion, InvigilatorAssignment, StudentTestSession, QuestionResponse,
+    TestSessionLock, ProctoringEvent, EvaluationHistory
 )
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -189,6 +191,40 @@ class RolePermissionSerializer(serializers.ModelSerializer):
         model = RolePermission
         fields = '__all__'
 
+
+class AccessMenuSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AccessMenu
+        fields = ['id', 'name', 'slug', 'category', 'description', 'path']
+
+
+class RoleDefinitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoleDefinition
+        fields = ['id', 'label', 'priority']
+
+
+class RoleMenuPermissionSerializer(serializers.ModelSerializer):
+    menuId = serializers.CharField(source='menu.id', read_only=True)
+    menuSlug = serializers.CharField(source='menu.slug', read_only=True)
+    roleId = serializers.CharField(source='role.id', read_only=True)
+    accessType = serializers.CharField(source='access_type')
+
+    class Meta:
+        model = RoleMenuPermission
+        fields = ['menuId', 'menuSlug', 'roleId', 'accessType']
+
+
+class UserMenuPermissionSerializer(serializers.ModelSerializer):
+    menuId = serializers.CharField(source='menu.id', read_only=True)
+    menuSlug = serializers.CharField(source='menu.slug', read_only=True)
+    userId = serializers.CharField(source='user.id', read_only=True)
+    accessType = serializers.CharField(source='access_type')
+
+    class Meta:
+        model = UserMenuPermission
+        fields = ['menuId', 'menuSlug', 'userId', 'accessType']
+
 class EmailSerializer(serializers.ModelSerializer):
     from_email = serializers.EmailField(source='sender.email', read_only=True)
     fromName = serializers.CharField(source='sender.username', read_only=True)
@@ -271,6 +307,61 @@ class TestAttendanceSerializer(serializers.ModelSerializer):
 class StudentSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentSubmission
+        fields = '__all__'
+
+
+class AssessmentTestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssessmentTest
+        fields = ['id', 'name', 'description', 'status', 'start_time', 'end_time', 'duration_minutes', 'allowed_roles']
+
+
+class TestQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestQuestion
+        fields = '__all__'
+
+
+class InvigilatorAssignmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvigilatorAssignment
+        fields = '__all__'
+
+
+class EvaluationHistorySerializer(serializers.ModelSerializer):
+    changedBy = serializers.CharField(source='changed_by.username', read_only=True)
+
+    class Meta:
+        model = EvaluationHistory
+        fields = ['id', 'previous_marks', 'new_marks', 'notes', 'changedBy', 'changed_at']
+
+
+class QuestionResponseSerializer(serializers.ModelSerializer):
+    history = EvaluationHistorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QuestionResponse
+        fields = '__all__'
+
+
+class TestSessionLockSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestSessionLock
+        fields = '__all__'
+
+
+class ProctoringEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProctoringEvent
+        fields = '__all__'
+
+
+class StudentTestSessionSerializer(serializers.ModelSerializer):
+    lock = TestSessionLockSerializer(source='lock_record', read_only=True)
+    proctorEventCount = serializers.IntegerField(source='proctor_events.count', read_only=True)
+
+    class Meta:
+        model = StudentTestSession
         fields = '__all__'
 
 class CustomTokenSerializer(TokenObtainPairSerializer):

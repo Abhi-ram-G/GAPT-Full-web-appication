@@ -82,17 +82,19 @@ const Login: React.FC = () => {
   const handleGoogleLogin = () => {
     setError(null);
     const bitsDomain = '@bitsathy.ac.in';
-    const chosen = email || googleEmail || '';
-    const isBitsMail = chosen.toLowerCase().endsWith(bitsDomain);
-    if (!isBitsMail) {
+    const chosen = (email || googleEmail || '').trim();
+    if (chosen && !chosen.toLowerCase().endsWith(bitsDomain)) {
       setError('Use your BITSATHY Google ID (name.xxyy@bitsathy.ac.in).');
       return;
     }
-    localStorage.setItem('google_email_hint', chosen);
-    setGoogleEmail(chosen);
+    if (chosen) {
+      localStorage.setItem('google_email_hint', chosen);
+      setGoogleEmail(chosen);
+    }
     setIsGoogleLoading(true);
-    // Force Google account chooser with domain and login_hint for clarity.
-    const target = `/auth/google?hd=bitsathy.ac.in&login_hint=${encodeURIComponent(chosen)}&prompt=select_account`;
+    // Force Google account chooser; include login_hint if we have one.
+    const base = '/auth/google?hd=bitsathy.ac.in&prompt=select_account';
+    const target = chosen ? `${base}&login_hint=${encodeURIComponent(chosen)}` : base;
     window.location.href = target;
   };
 
