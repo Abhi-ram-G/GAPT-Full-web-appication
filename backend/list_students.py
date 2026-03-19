@@ -2,17 +2,18 @@
 import os
 import django
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 # Try to find where settings is
 try:
-    import backend.settings
-    print("Found backend.settings")
-except:
-    print("Could not find backend.settings")
+    import core.settings
+    print("Found core.settings")
+except ImportError:
+    print("Could not find core.settings")
 
 django.setup()
 
 from registry.models import User
+
 students = User.objects.filter(role='STUDENT')
 print(f"Count: {students.count()}")
 for s in students:
