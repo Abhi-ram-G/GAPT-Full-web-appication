@@ -3,4 +3,5 @@ node_modules
 ./frontend/.env
 backend/.env
 backend/db.sqlite3
+backend/defaultdb
 backend/.env

@@ -7,20 +7,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_SSL_CA = os.getenv('DB_SSL_CA')
+BASE_DIR = Path(__file__).resolve().parent.parent
+CA_CERT_PATH = BASE_DIR / 'ca.pem'
 DB_SSL_MODE = os.getenv('DB_SSL_MODE')
 
 DB_MYSQL_OPTIONS = {
     'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
 }
-if DB_SSL_CA or DB_SSL_MODE:
-    DB_MYSQL_OPTIONS['ssl'] = {}
-    if DB_SSL_CA:
-        DB_MYSQL_OPTIONS['ssl']['ca'] = DB_SSL_CA
-    if DB_SSL_MODE:
-        DB_MYSQL_OPTIONS['ssl']['ssl-mode'] = DB_SSL_MODE
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+ssl_options = {}
+if CA_CERT_PATH.exists():
+    ssl_options['ca'] = str(CA_CERT_PATH)
+if DB_SSL_MODE:
+    ssl_options['ssl-mode'] = DB_SSL_MODE
+if ssl_options:
+    DB_MYSQL_OPTIONS['ssl'] = ssl_options
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-this')
 
