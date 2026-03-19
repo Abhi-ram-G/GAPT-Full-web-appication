@@ -1,4 +1,6 @@
 import os
+import socket
+import warnings
 import pymysql
 from pathlib import Path
 
@@ -92,8 +94,22 @@ TEMPLATES = [
 WSGI_APPLICATION = 'core.wsgi.application'
 
 DB_ENGINE = os.getenv('DB_ENGINE', 'django.db.backends.mysql')
+DB_HOST_OVERRIDE = os.getenv('DB_HOST')
+DB_FORCE_SQLITE = os.getenv('DB_FORCE_SQLITE', 'False') == 'True'
 
-if DB_ENGINE == 'django.db.backends.sqlite3':
+def mysql_host_resolves(host: str | None) -> bool:
+    if not host:
+        return False
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except socket.gaierror:
+        return False
+
+MYSQL_HOST_AVAILABLE = mysql_host_resolves(DB_HOST_OVERRIDE)
+
+force_sqlite = DB_ENGINE == 'django.db.backends.sqlite3' or DB_FORCE_SQLITE or not MYSQL_HOST_AVAILABLE
+if force_sqlite:
     SQLITE_NAME = os.getenv('DB_NAME') or os.path.join(BASE_DIR, 'db.sqlite3')
     DATABASES = {
         'default': {
@@ -101,6 +117,7 @@ if DB_ENGINE == 'django.db.backends.sqlite3':
             'NAME': SQLITE_NAME,
         }
     }
+    warnings.warn("Using SQLite because MySQL host is not resolvable or forced.", RuntimeWarning)
 else:
     DATABASES = {
         'default': {
@@ -108,7 +125,7 @@ else:
             'NAME': os.getenv('DB_NAME', 'gapt_db'),
             'USER': os.getenv('DB_USER', 'root'),
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'HOST': DB_HOST_OVERRIDE or 'localhost',
             'PORT': os.getenv('DB_PORT', '3306'),
             'OPTIONS': DB_MYSQL_OPTIONS,
         }
