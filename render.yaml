@@ -17,5 +17,17 @@ services:
         value: False
       - key: SECRET_KEY
         value: your-secret-key
-      - key: DATABASE_URL
-        value: postgres://user:pass@host:port/db
+      - key: DB_ENGINE
+        value: django.db.backends.mysql
+      - key: DB_NAME
+        value: "<set in Render secrets>"
+      - key: DB_USER
+        value: "<set in Render secrets>"
+      - key: DB_PASSWORD
+        value: "<set in Render secrets>"
+      - key: DB_HOST
+        value: "<set in Render secrets>"
+      - key: DB_PORT
+        value: "<set in Render secrets>"
+      - key: DB_SSL_MODE
+        value: "<set in Render secrets>"
