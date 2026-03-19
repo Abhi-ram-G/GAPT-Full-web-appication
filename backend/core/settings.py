@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-CA_CERT_PATH = BASE_DIR / 'ca.pem'
+CA_CERT_PATH_ENV = os.getenv('DB_SSL_CA')
+CA_CERT_PATH = Path(CA_CERT_PATH_ENV) if CA_CERT_PATH_ENV else None
 DB_SSL_MODE = os.getenv('DB_SSL_MODE')
 
 DB_MYSQL_OPTIONS = {
@@ -16,7 +17,7 @@ DB_MYSQL_OPTIONS = {
 }
 
 ssl_options = {}
-if CA_CERT_PATH.exists():
+if CA_CERT_PATH and CA_CERT_PATH.exists():
     ssl_options['ca'] = str(CA_CERT_PATH)
 if DB_SSL_MODE:
     ssl_options['ssl-mode'] = DB_SSL_MODE
