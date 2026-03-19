@@ -9,8 +9,16 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CA_CERT_PATH_ENV = os.getenv('DB_SSL_CA')
-CA_CERT_PATH = Path(CA_CERT_PATH_ENV) if CA_CERT_PATH_ENV else None
+CA_CERT_DATA = os.getenv('DB_SSL_CA_CERT')
 DB_SSL_MODE = os.getenv('DB_SSL_MODE')
+
+CA_CERT_PATH = None
+if CA_CERT_PATH_ENV:
+    CA_CERT_PATH = Path(CA_CERT_PATH_ENV)
+elif CA_CERT_DATA:
+    CA_CERT_PATH = Path('/tmp/aiven-ca.pem')
+    pem_text = CA_CERT_DATA.replace('\\n', '\n')
+    CA_CERT_PATH.write_text(pem_text, encoding='utf-8')
 
 DB_MYSQL_OPTIONS = {
     'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
