@@ -26,24 +26,20 @@ else:
     admin.save()
     print(f"Admin password reset to 'password' for {ADMIN_ID}")
 
+admin_user = User.objects.get(username=ADMIN_ID)
 # Create OAuth2 application if not exists
-if not Application.objects.filter(name='GAPT_APP').exists():
-    Application.objects.create(
-        name='GAPT_APP',
-        client_id='GAPT_CLIENT_ID',
-        client_secret='GAPT_CLIENT_SECRET',
-        client_type=Application.CLIENT_PUBLIC,  # Changed to PUBLIC to allow payload credentials
-        authorization_grant_type=Application.GRANT_PASSWORD,
-        user=User.objects.get(username=ADMIN_ID)
-    )
-    print("OAuth2 Application created: GAPT_CLIENT_ID (PUBLIC)")
-else:
-    app = Application.objects.get(name='GAPT_APP')
-    app.client_id = 'GAPT_CLIENT_ID'
-    app.client_secret = 'GAPT_CLIENT_SECRET'
-    app.client_type = Application.CLIENT_PUBLIC
-    app.save()
-    print("OAuth2 Application parameters updated to PUBLIC client_type.")
+app, created = Application.objects.update_or_create(
+    client_id='GAPT_CLIENT_ID',
+    defaults={
+        'name': 'GAPT_APP',
+        'client_secret': 'GAPT_CLIENT_SECRET',
+        'client_type': Application.CLIENT_PUBLIC,
+        'authorization_grant_type': Application.GRANT_PASSWORD,
+        'user': admin_user,
+        'skip_authorization': True
+    }
+)
+print(f"OAuth2 Application {'created' if created else 'updated'}: GAPT_CLIENT_ID (PUBLIC)")
 
 # Populate default permissions for ADMIN
 from registry.models import RolePermission
