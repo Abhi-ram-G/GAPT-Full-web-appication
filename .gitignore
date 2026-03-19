@@ -2,3 +2,4 @@ node_modules
 ./backend/.env
 ./frontend/.env
 backend/.env
+backend/db.sqlite3
