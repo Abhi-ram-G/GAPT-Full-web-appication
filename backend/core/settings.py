@@ -5,6 +5,7 @@ import pymysql
 from pathlib import Path
 
 pymysql.install_as_MySQLdb()
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +38,14 @@ if ssl_options:
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-this')
 
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise ImproperlyConfigured(
+            f"Environment variable '{name}' is required in production but was not provided."
+        )
+    return value
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
@@ -96,6 +105,10 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DB_ENGINE = os.getenv('DB_ENGINE', 'django.db.backends.mysql')
 DB_HOST_OVERRIDE = os.getenv('DB_HOST')
 DB_FORCE_SQLITE = os.getenv('DB_FORCE_SQLITE', 'False') == 'True'
+
+if not DEBUG:
+    for var in ('DB_ENGINE', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT'):
+        require_env(var)
 
 def mysql_host_resolves(host: str | None) -> bool:
     if not host:
