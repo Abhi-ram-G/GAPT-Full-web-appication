@@ -36,10 +36,10 @@ elif CA_CERT_DATA:
     CA_CERT_PATH.write_text(pem_text, encoding='utf-8')
     ssl_options['ca'] = str(CA_CERT_PATH)
 
+if DB_SSL_MODE:
+    ssl_options['ssl_mode'] = DB_SSL_MODE
 if ssl_options:
     DB_MYSQL_OPTIONS['ssl'] = ssl_options
-if DB_SSL_MODE:
-    DB_MYSQL_OPTIONS['ssl_mode'] = DB_SSL_MODE
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-this')
 
