@@ -30,10 +30,16 @@ DB_MYSQL_OPTIONS = {
 ssl_options = {}
 if CA_CERT_PATH and CA_CERT_PATH.exists():
     ssl_options['ca'] = str(CA_CERT_PATH)
-if DB_SSL_MODE:
-    ssl_options['ssl-mode'] = DB_SSL_MODE
+elif CA_CERT_DATA:
+    CA_CERT_PATH = Path('/tmp/aiven-ca.pem')
+    pem_text = CA_CERT_DATA.replace('\\n', '\n')
+    CA_CERT_PATH.write_text(pem_text, encoding='utf-8')
+    ssl_options['ca'] = str(CA_CERT_PATH)
+
 if ssl_options:
     DB_MYSQL_OPTIONS['ssl'] = ssl_options
+if DB_SSL_MODE:
+    DB_MYSQL_OPTIONS['ssl_mode'] = DB_SSL_MODE
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-this')
 
